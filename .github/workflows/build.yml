@@ -1,0 +1,120 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to publish releases on tags
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      # whisper.cpp's Vulkan shader generator overflows the 260-char path limit
+      # inside the default target dir, so build in a short one.
+      CARGO_TARGET_DIR: C:\t
+      CMAKE_GENERATOR: Ninja
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+      VULKAN_SDK: C:\VulkanSDK
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # cargo registry/git cache
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+          cache-targets: false
+
+      # compiled crates incl. whisper.cpp (the slow part), in the short target dir
+      - uses: actions/cache@v4
+        with:
+          path: C:\t
+          key: target-${{ runner.os }}-${{ hashFiles('app/src-tauri/Cargo.lock', 'app/src-tauri/.cargo/config.toml') }}
+          restore-keys: target-${{ runner.os }}-
+
+      - name: Cache Vulkan SDK
+        id: vulkan-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-latest-v1
+
+      - name: Install Vulkan SDK
+        if: steps.vulkan-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe -OutFile $env:RUNNER_TEMP\vulkan-sdk.exe
+          & $env:RUNNER_TEMP\vulkan-sdk.exe --root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install | Out-Default
+          if (-not (Test-Path C:\VulkanSDK\Bin\glslc.exe)) { throw "Vulkan SDK install failed" }
+
+      - name: Add Vulkan SDK to PATH
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH "C:\VulkanSDK\Bin"
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Build Transkrypt.exe
+        working-directory: app
+        run: npm run tauri build -- --no-bundle
+
+      - name: Collect exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-exe | Out-Null
+          Copy-Item C:\t\release\transkrypt.exe dist-exe\Transkrypt.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Transkrypt-${{ github.sha }}
+          path: dist-exe/Transkrypt.exe
+          if-no-files-found: error
+
+      # Every push to main publishes a new release (tag build-<n>), marked as latest.
+      - name: Publish build release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Transkrypt build ${{ github.run_number }}
+          body: |
+            Automatyczny build z commita ${{ github.sha }}.
+
+            Pobierz `Transkrypt.exe` i uruchom — przy pierwszym starcie aplikacja sama pobierze model (~550 MB).
+          files: dist-exe/Transkrypt.exe
+          make_latest: true
+
+      # A version tag (v1.2.3) publishes a named release with notes.
+      - name: Publish version release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-exe/Transkrypt.exe
+          generate_release_notes: true
+          make_latest: true

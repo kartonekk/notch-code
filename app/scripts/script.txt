@@ -1,0 +1,1 @@
+powershell -ExecutionPolicy Bypass -File S:\Dev\transkrypt\app\scripts\build-release.ps1

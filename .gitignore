@@ -1,0 +1,11 @@
+# build output
+release/
+dist-exe/
+app/dist/
+app/node_modules/
+app/src-tauri/target/
+app/src-tauri/gen/schemas/
+
+# leftovers (old .NET scaffold at the repo root only — not app/src)
+/src/
+*.log

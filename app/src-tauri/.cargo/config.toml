@@ -1,0 +1,4 @@
+# Link the MSVC C runtime statically (also applied to whisper.cpp via the cmake
+# crate), so transkrypt.exe runs without the Visual C++ Redistributable.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
