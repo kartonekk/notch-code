@@ -112,7 +112,43 @@ button {
   font-weight: 600;
   letter-spacing: 0.2px;
   color: #d1d1d6;
-  margin-right: 18px;
+  /* balances .bar-lead (14 + 6 + 8) + gap so the label stays centred */
+  margin-right: 38px;
+}
+
+.bar-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* internet indicator */
+.net {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--muted);
+  transition: color 200ms;
+}
+.net svg {
+  display: block;
+}
+.net-online {
+  color: var(--ok);
+}
+.net-slow {
+  color: #ffd60a;
+}
+.net-offline {
+  color: var(--rec);
+  animation: pulse 1s ease-in-out infinite;
+}
+.net-text {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
 }
 
 .ticker {

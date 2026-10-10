@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, AppStatus, AudioSource, Levels, on, Segment } from "./api";
+import { api, AppStatus, AudioSource, Levels, NetStatus, on, Segment } from "./api";
 import "./notch.css";
 
 // Window sizes in logical pixels. The window is resized to match the notch,
 // because transparent parts of a WebView window still swallow mouse clicks.
-const COLLAPSED = { w: 240, h: 36 };
+const COLLAPSED = { w: 270, h: 36 };
 const COLLAPSED_LIVE = { w: 460, h: 36 };
 const EXPANDED = { w: 580, h: 420 };
 const ANIM_MS = 260;
@@ -20,6 +20,7 @@ export default function App() {
   const [includeMic, setIncludeMic] = useState(true);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [levels, setLevels] = useState<Levels>({ app: 0, mic: 0 });
+  const [net, setNet] = useState<NetStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   /** "Zakończ" was clicked: asking for the meeting subject (file name) */
@@ -43,6 +44,7 @@ export default function App() {
     const subs = [
       on<AppStatus>("status", setStatus),
       on<Levels>("levels", setLevels),
+      on<NetStatus>("net", setNet),
       on<Segment>("segment", (seg) =>
         setSegments((prev) => {
           const i = prev.findIndex((s) => s.id === seg.id);
@@ -208,7 +210,10 @@ export default function App() {
         <div className="notch-clip">
         {/* ---------- collapsed bar ---------- */}
         <div className="bar">
-          <StatusDot phase={paused ? "paused" : phase} />
+          <span className="bar-lead">
+            <NetIndicator net={net} />
+            <StatusDot phase={paused ? "paused" : phase} />
+          </span>
           {recording ? (
             <>
               <span className={`timer ${paused ? "is-paused" : ""}`}>{elapsed}</span>
@@ -233,7 +238,9 @@ export default function App() {
                   : "Przygotowanie…"
                 : phase === "error"
                   ? "Błąd — najedź, aby zobaczyć"
-                  : "Transkrypt"}
+                  : net && !net.online
+                    ? "Brak internetu"
+                    : "Transkrypt"}
             </span>
           )}
         </div>
@@ -252,6 +259,7 @@ export default function App() {
                 )}
               </div>
               <div className="head-actions">
+                <NetIndicator net={net} showLatency />
                 {status?.backend && <span className="chip">{status.backend}</span>}
                 <IconButton title={pinned ? "Odepnij" : "Przypnij otwarty"} active={pinned} onClick={() => setPinned(!pinned)}>
                   <PinIcon />
@@ -422,6 +430,21 @@ function StatusDot({ phase }: { phase: string }) {
   return <span className={`dot dot-${phase}`} />;
 }
 
+function NetIndicator({ net, showLatency }: { net: NetStatus | null; showLatency?: boolean }) {
+  const state = !net ? "unknown" : !net.online ? "offline" : (net.latency_ms ?? 0) > 300 ? "slow" : "online";
+  const title = !net
+    ? "Sprawdzam połączenie…"
+    : net.online
+      ? `Internet: ${net.latency_ms} ms`
+      : "Brak połączenia z internetem";
+  return (
+    <span className={`net net-${state}`} title={title}>
+      {state === "offline" ? <WifiOffIcon /> : <WifiIcon />}
+      {showLatency && <span className="net-text">{net?.online ? `${net.latency_ms} ms` : state === "offline" ? "offline" : "…"}</span>}
+    </span>
+  );
+}
+
 function Bars({ level }: { level: number }) {
   const l = Math.min(1, Math.sqrt(level) * 1.6);
   const weights = [0.55, 0.85, 1, 0.75, 0.5];
@@ -470,6 +493,18 @@ const PauseIcon = () => (
 const PlayIcon = () => (
   <svg {...svg} width={13} height={13}>
     <path d="M7 5l12 7-12 7z" />
+  </svg>
+);
+const WifiIcon = () => (
+  <svg {...svg} width={14} height={14}>
+    <path d="M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.3a5 5 0 0 1 7 0" />
+    <circle cx="12" cy="20" r="0.6" fill="currentColor" />
+  </svg>
+);
+const WifiOffIcon = () => (
+  <svg {...svg} width={14} height={14}>
+    <path d="M2 2l20 20M8.5 16.3a5 5 0 0 1 7 0M5 12.6a10 10 0 0 1 5.2-2.7M16.7 10.4A10 10 0 0 1 19 12.6M2 8.8a15 15 0 0 1 4.6-2.9M10.7 5a15 15 0 0 1 11.3 3.8" />
+    <circle cx="12" cy="20" r="0.6" fill="currentColor" />
   </svg>
 );
 const PowerIcon = () => (

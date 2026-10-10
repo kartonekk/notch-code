@@ -44,6 +44,12 @@ export interface Levels {
   mic: number;
 }
 
+export interface NetStatus {
+  online: boolean;
+  /** TCP connect time to a public host, null when offline */
+  latency_ms: number | null;
+}
+
 export const api = {
   status: () => invoke<AppStatus>("get_status"),
   sources: () => invoke<AudioSource[]>("list_sources"),

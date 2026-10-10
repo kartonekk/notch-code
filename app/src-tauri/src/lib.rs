@@ -1,6 +1,7 @@
 mod audio;
 mod config;
 mod dsp;
+mod net;
 mod paths;
 mod setup;
 mod transcriber;
@@ -460,7 +461,7 @@ pub fn run() {
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");
-            place_notch(&window, 240.0, 36.0)?;
+            place_notch(&window, 270.0, 36.0)?;
             window.show()?;
 
             let open_item = MenuItem::with_id(app, "folder", "Folder z transkryptami", true, None::<&str>)?;
@@ -483,6 +484,7 @@ pub fn run() {
                 .build(app)?;
 
             start_setup(app.handle().clone());
+            net::spawn_monitor(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
