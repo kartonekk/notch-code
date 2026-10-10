@@ -405,8 +405,32 @@ fn place_notch(window: &WebviewWindow, width: f64, height: f64) -> tauri::Result
     let phys_w = (w * scale).round();
     let x = monitor.position().x as f64 + (monitor.size().width as f64 - phys_w) / 2.0;
     let y = monitor.position().y;
-    window.set_size(Size::Logical(LogicalSize::new(w, height)))?;
-    window.set_position(PhysicalPosition::new(x.round() as i32, y))?;
+
+    // Move and resize in one call: separate set_size + set_position calls show
+    // one frame where the window has the new size at the old x, so the centred
+    // notch visibly jumps sideways.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
+        let hwnd = window.hwnd()?.0;
+        let phys_h = (height * scale).round();
+        unsafe {
+            SetWindowPos(
+                hwnd as _,
+                std::ptr::null_mut(),
+                x.round() as i32,
+                y,
+                phys_w as i32,
+                phys_h as i32,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        window.set_size(Size::Logical(LogicalSize::new(w, height)))?;
+        window.set_position(PhysicalPosition::new(x.round() as i32, y))?;
+    }
     Ok(())
 }
 

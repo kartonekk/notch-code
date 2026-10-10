@@ -124,7 +124,8 @@ export default function App() {
   useEffect(() => {
     if (expanded) setShell(true);
     else {
-      const t = window.setTimeout(() => setShell(false), ANIM_MS);
+      // small buffer so the CSS transition has fully settled before the window shrinks
+      const t = window.setTimeout(() => setShell(false), ANIM_MS + 40);
       return () => window.clearTimeout(t);
     }
   }, [expanded]);
