@@ -2,8 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api, AppStatus, AudioSource, Levels, NetStatus, on, Segment } from "./api";
 import "./notch.css";
 
-// Window sizes in logical pixels. The window is resized to match the notch,
-// because transparent parts of a WebView window still swallow mouse clicks.
+// Notch sizes in logical pixels. The window itself always has the EXPANDED size
+// (see WINDOW_W in lib.rs); the backend makes everything outside the current
+// notch click-through and reports hover via the `notch-hover` event.
 const COLLAPSED = { w: 270, h: 36 };
 const COLLAPSED_LIVE = { w: 460, h: 36 };
 const EXPANDED = { w: 580, h: 420 };
@@ -120,8 +121,19 @@ export default function App() {
     if (expanded && !pinned && !ending) collapseTimer.current = window.setTimeout(collapse, 600);
   };
 
-  // `shell` keeps the expanded panel mounted (and the window large) until the
-  // collapse animation has finished, then the window shrinks to the bar.
+  // Hover comes from the backend's cursor polling; the handler ref keeps the
+  // once-registered listener seeing current state.
+  const hoverHandler = useRef<(inside: boolean) => void>(() => {});
+  hoverHandler.current = (inside) => (inside ? onEnter() : onLeave());
+  useEffect(() => {
+    const sub = on<boolean>("notch-hover", (inside) => hoverHandler.current(inside));
+    return () => {
+      sub.then((un) => un());
+    };
+  }, []);
+
+  // `shell` keeps the expanded panel mounted (and the hit area large) until the
+  // collapse animation has finished, then the hit area shrinks to the bar.
   const [shell, setShell] = useState(expanded);
   useEffect(() => {
     if (expanded) setShell(true);
@@ -201,8 +213,6 @@ export default function App() {
       <div
         className={`notch ${expanded ? "is-expanded" : ""} phase-${phase}`}
         style={{ width: size.w, height: size.h }}
-        onMouseEnter={onEnter}
-        onMouseLeave={onLeave}
         onClick={() => !expanded && expand()}
       >
         <span className="ear ear-l" />

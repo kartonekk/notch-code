@@ -1,6 +1,7 @@
 mod audio;
 mod config;
 mod dsp;
+mod hover;
 mod net;
 mod paths;
 mod setup;
@@ -26,6 +27,9 @@ use transcript::TranscriptFile;
 
 /// Width of the inverted "ear" corners drawn on both sides of the notch (CSS --ear).
 const EAR: f64 = 12.0;
+/// Window size in logical pixels: the expanded panel (EXPANDED in App.tsx) + ears.
+const WINDOW_W: f64 = 580.0 + EAR * 2.0;
+const WINDOW_H: f64 = 420.0;
 
 #[derive(Clone, Debug, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -361,8 +365,8 @@ async fn stop_recording(app: AppHandle, title: Option<String>) -> Result<Option<
 }
 
 #[tauri::command]
-fn set_notch_size(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
-    place_notch(&window, width, height).map_err(|e| e.to_string())
+fn set_notch_size(width: f64, height: f64) {
+    hover::set_notch(width, height);
 }
 
 #[tauri::command]
@@ -394,44 +398,21 @@ async fn quit_app(app: AppHandle) {
 
 // ---------------------------------------------------------------- window
 
-/// Resizes the window to the notch (+ ears) and pins it to the top centre of
-/// the primary monitor.
-fn place_notch(window: &WebviewWindow, width: f64, height: f64) -> tauri::Result<()> {
+/// Pins the window to the top centre of the primary monitor. It keeps the size
+/// of the expanded panel (+ ears) for its whole life; `hover` makes everything
+/// outside the visible notch click-through.
+fn place_window(window: &WebviewWindow) -> tauri::Result<()> {
     let monitor = window
         .primary_monitor()?
         .or(window.current_monitor()?);
     let Some(monitor) = monitor else { return Ok(()) };
     let scale = monitor.scale_factor();
-    let w = width + EAR * 2.0;
-    let phys_w = (w * scale).round();
-    let x = monitor.position().x as f64 + (monitor.size().width as f64 - phys_w) / 2.0;
+    let phys_w = (WINDOW_W * scale).round();
+    let x = (monitor.position().x as f64 + (monitor.size().width as f64 - phys_w) / 2.0).round() as i32;
     let y = monitor.position().y;
-
-    // Move and resize in one call: separate set_size + set_position calls show
-    // one frame where the window has the new size at the old x, so the centred
-    // notch visibly jumps sideways.
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
-        let hwnd = window.hwnd()?.0;
-        let phys_h = (height * scale).round();
-        unsafe {
-            SetWindowPos(
-                hwnd as _,
-                std::ptr::null_mut(),
-                x.round() as i32,
-                y,
-                phys_w as i32,
-                phys_h as i32,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        window.set_size(Size::Logical(LogicalSize::new(w, height)))?;
-        window.set_position(PhysicalPosition::new(x.round() as i32, y))?;
-    }
+    window.set_size(Size::Logical(LogicalSize::new(WINDOW_W, WINDOW_H)))?;
+    window.set_position(PhysicalPosition::new(x, y))?;
+    hover::set_window(x, y, phys_w, scale);
     Ok(())
 }
 
@@ -461,8 +442,11 @@ pub fn run() {
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");
-            place_notch(&window, 270.0, 36.0)?;
+            place_window(&window)?;
+            hover::set_notch(270.0, 36.0);
+            window.set_ignore_cursor_events(true)?;
             window.show()?;
+            hover::spawn(window.clone());
 
             let open_item = MenuItem::with_id(app, "folder", "Folder z transkryptami", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Zakończ", true, None::<&str>)?;
