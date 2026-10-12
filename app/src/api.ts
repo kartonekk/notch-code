@@ -87,6 +87,8 @@ export interface SessionStatus {
   has_session: boolean;
   /** the step in progress, for the collapsed bar */
   current: string | null;
+  /** unix ms when that step started (null while Claude is thinking) */
+  current_since: number | null;
   /** unix ms when the running message was sent */
   started_at: number | null;
   /** model of the last run, as Claude reported it */
@@ -121,8 +123,9 @@ export interface Denied {
 export type AgentEvent = { sid: number } & (
   | { kind: "start"; run: number; prompt: string }
   | { kind: "text"; run: number; text: string }
-  | { kind: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null }
-  | { kind: "step_done"; run: number; id: string; ok: boolean; output: string | null }
+  /** `at` = unix ms when the step started */
+  | { kind: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null; at: number }
+  | { kind: "step_done"; run: number; id: string; ok: boolean; output: string | null; label: string; duration_ms: number }
   | { kind: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[] }
 );
 
@@ -141,6 +144,18 @@ export interface ReviewStatus {
   live: boolean;
   /** VS Code was found */
   vscode: boolean;
+}
+
+/**
+ * Spoken prompts. off: microphone closed · listening: waiting for "Claude" ·
+ * armed: waiting for the prompt · hearing: taking it (`text` = heard so far)
+ */
+export interface VoiceStatus {
+  /** the wake word is on */
+  wake: boolean;
+  phase: "off" | "listening" | "armed" | "hearing";
+  text: string | null;
+  error: string | null;
 }
 
 export const api = {
@@ -182,6 +197,10 @@ export const api = {
   /** system folder picker */
   agentPickFolder: (current: string | null) => invoke<string | null>("agent_pick_folder", { current }),
   agentOpenFolder: (path: string) => invoke<void>("agent_open_folder", { path }),
+  /** saves a pasted image for Claude; returns its path */
+  agentSaveImage: (bytes: Uint8Array, ext: string) => invoke<string>("agent_save_image", bytes, { headers: { "x-ext": ext } }),
+  /** system file picker for images */
+  agentPickImages: () => invoke<string[]>("agent_pick_images"),
   reviewStatus: () => invoke<ReviewStatus>("review_status"),
   /** keep Claude's changes (one file, or all when `path` is omitted) */
   reviewAccept: (project: string, path?: string) => invoke<void>("review_accept", { project, path: path ?? null }),
@@ -190,6 +209,11 @@ export const api = {
   /** original ↔ current in VS Code */
   reviewDiff: (project: string, path: string) => invoke<void>("review_diff", { project, path }),
   reviewSetLive: (live: boolean) => invoke<void>("review_set_live", { live }),
+  voiceStatus: () => invoke<VoiceStatus>("voice_status"),
+  /** wake word "Claude" on/off (keeps the microphone open while on) */
+  voiceSetWake: (on: boolean) => invoke<void>("voice_set_wake", { on }),
+  /** take the next thing said as a prompt; again to cancel */
+  voiceTalk: () => invoke<void>("voice_talk"),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

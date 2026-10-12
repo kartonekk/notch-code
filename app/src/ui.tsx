@@ -214,6 +214,20 @@ export const MicIcon = () => (
     <path d="M5 10a7 7 0 0 0 14 0M12 17v5" />
   </svg>
 );
+/** voice prompts switched off */
+export const MicOffIcon = () => (
+  <svg {...small}>
+    <path d="M15 9.3V5a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.8 2.4" />
+    <path d="M19 10a7 7 0 0 1-1.2 3.9M5 10a7 7 0 0 0 10.9 5.8M12 17v5M3 3l18 18" />
+  </svg>
+);
+export const ImageIcon = () => (
+  <svg {...small}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="M21 15l-5-5L5 21" />
+  </svg>
+);
 export const SendIcon = () => (
   <svg {...svg}>
     <path d="M12 19V5M5 12l7-7 7 7" />

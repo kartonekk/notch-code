@@ -74,6 +74,8 @@ pub struct Segmenter {
     utt_start_ms: u64,
     last_partial_len: usize,
     partials: bool,
+    end_frames: usize,
+    max_utt: usize,
     /// samples received so far; drives the utterance timestamps
     clock: u64,
     /// offset of this stream relative to the recording start
@@ -82,9 +84,11 @@ pub struct Segmenter {
 
 const START_FRAMES: usize = 3; // 60 ms of speech opens an utterance
 const END_FRAMES: usize = 35; // 700 ms of silence closes it
+const DICTATION_END_FRAMES: usize = 60; // 1.2 s: people pause while thinking up a prompt
 const KEEP_TAIL: usize = RATE / 5; // keep 200 ms of the trailing silence
 const PREROLL: usize = RATE * 3 / 10; // 300 ms before the onset
 const MAX_UTT: usize = RATE * 20; // force a cut after 20 s
+const DICTATION_MAX_UTT: usize = RATE * 60;
 const MIN_UTT: usize = RATE * 2 / 5; // ignore blips shorter than 400 ms
 const PARTIAL_EVERY: usize = RATE; // live preview every 1 s of new audio
 
@@ -105,9 +109,18 @@ impl Segmenter {
             utt_start_ms: 0,
             last_partial_len: 0,
             partials,
+            end_frames: END_FRAMES,
+            max_utt: MAX_UTT,
             clock: 0,
             offset_ms,
         }
+    }
+
+    /// Spoken prompts: longer pauses and longer utterances before cutting.
+    pub fn for_dictation(mut self) -> Self {
+        self.end_frames = DICTATION_END_FRAMES;
+        self.max_utt = DICTATION_MAX_UTT;
+        self
     }
 
     pub fn push(&mut self, samples: &[f32], next_id: &mut dyn FnMut() -> u64, out: &mut Vec<VadEvent>) {
@@ -163,12 +176,12 @@ impl Segmenter {
         self.utt.extend_from_slice(frame);
         self.silence_run = if is_speech { 0 } else { self.silence_run + 1 };
 
-        if self.silence_run >= END_FRAMES {
+        if self.silence_run >= self.end_frames {
             let trailing = self.silence_run * FRAME;
             let cut = trailing.saturating_sub(KEEP_TAIL);
             self.utt.truncate(self.utt.len() - cut.min(self.utt.len()));
             self.finish(out, false);
-        } else if self.utt.len() >= MAX_UTT {
+        } else if self.utt.len() >= self.max_utt {
             self.finish(out, true);
             // keep talking: the next utterance starts right here
             self.speaking = true;

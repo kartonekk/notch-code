@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ClipboardEvent as ReactClipboardEvent } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, StepIcon } from "./api";
 import { RecklessStrip } from "./Reckless";
+import { MicButton, Voice, VoiceStrip } from "./Voice";
 import {
   AlertIcon,
   basename,
@@ -11,6 +14,7 @@ import {
   FlameIcon,
   FolderIcon,
   formatDuration,
+  ImageIcon,
   formatSpan,
   RetryIcon,
   SendIcon,
@@ -23,7 +27,19 @@ import {
 export type FeedItem =
   | { type: "prompt"; run: number; text: string }
   | { type: "text"; run: number; text: string }
-  | { type: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null; state: "running" | "ok" | "error"; output?: string | null }
+  | {
+      type: "step";
+      run: number;
+      id: string;
+      icon: StepIcon;
+      label: string;
+      detail: string | null;
+      state: "running" | "ok" | "error";
+      output?: string | null;
+      /** unix ms */
+      started: number;
+      duration_ms?: number;
+    }
   | { type: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[]; steps: number };
 
 /** What the collapsed notch says about a run that ended while it was closed. */
@@ -33,6 +49,9 @@ export interface AgentNotice {
 }
 
 const MAX_ITEMS = 2000;
+/** a step that took at least this long says so in the notch when it finishes (builds etc.) */
+const LONG_STEP_MS = 15_000;
+const FLASH_MS = 8_000;
 
 function applyEvent(prev: FeedItem[], e: AgentEvent): FeedItem[] {
   let next: FeedItem[];
@@ -44,10 +63,12 @@ function applyEvent(prev: FeedItem[], e: AgentEvent): FeedItem[] {
       next = [...prev, { type: "text", run: e.run, text: e.text }];
       break;
     case "step":
-      next = [...prev, { type: "step", run: e.run, id: e.id, icon: e.icon, label: e.label, detail: e.detail, state: "running" }];
+      next = [...prev, { type: "step", run: e.run, id: e.id, icon: e.icon, label: e.label, detail: e.detail, state: "running", started: e.at }];
       break;
     case "step_done":
-      next = prev.map((i) => (i.type === "step" && i.id === e.id ? { ...i, state: e.ok ? "ok" : "error", output: e.output } : i));
+      next = prev.map((i) =>
+        i.type === "step" && i.id === e.id ? { ...i, state: e.ok ? "ok" : "error", output: e.output, duration_ms: e.duration_ms } : i,
+      );
       break;
     case "done": {
       const steps = prev.filter((i) => i.type === "step" && i.run === e.run).length;
@@ -69,6 +90,39 @@ function noticeFor(e: Extract<AgentEvent, { kind: "done" }>, project: string): A
   if (e.denied.length > 0) return { tone: "warn", text: `${name}: Claude needs your OK to continue` };
   if (!e.ok) return { tone: "error", text: `${name}: ${e.message ?? "Claude hit a problem"}` };
   return { tone: "ok", text: `${name} · done in ${formatSpan(e.duration_ms)}` };
+}
+
+/** an image going with the next message; `preview` for pasted ones */
+interface Attachment {
+  path: string;
+  preview?: string;
+}
+
+const isImagePath = (p: string) => /\.(png|jpe?g|gif|webp)$/i.test(p);
+
+const IMAGES_HEADER = "\n\nAttached images (open them with the Read tool):\n";
+
+/** Claude Code reads images from disk, so the message lists their paths. */
+function withImages(text: string, paths: string[]) {
+  if (paths.length === 0) return text;
+  return `${text.trim() || "Look at the attached image."}${IMAGES_HEADER}${paths.map((p) => `- ${p}`).join("\n")}`;
+}
+
+/** the other way round, for showing a sent message */
+function splitImages(prompt: string): { text: string; images: string[] } {
+  const at = prompt.indexOf(IMAGES_HEADER);
+  if (at < 0) return { text: prompt, images: [] };
+  const images = prompt
+    .slice(at + IMAGES_HEADER.length)
+    .split("\n")
+    .map((l) => l.replace(/^- /, "").trim())
+    .filter(Boolean);
+  return { text: prompt.slice(0, at), images };
+}
+
+/** "01:23" for the step in progress once it has run a few seconds; "" otherwise */
+export function stepTime(s: SessionStatus, now: number) {
+  return s.running && s.current_since && now - s.current_since >= 3000 ? formatDuration(now - s.current_since) : "";
 }
 
 /** "Auto" is the no-brakes mode: nothing is asked, every change is kept. */
@@ -111,6 +165,16 @@ export function useAgents(expanded: boolean, viewing: number | null) {
   });
   const [model, setModelState] = useState(() => store.get("agent.model") ?? "");
   const [error, setError] = useState<string | null>(null);
+  /** a short-lived line for the collapsed notch: a long step finished, a spoken prompt went out */
+  const [flash, setFlashState] = useState<AgentNotice | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  const showFlash = (n: AgentNotice) => {
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    setFlashState(n);
+    flashTimer.current = window.setTimeout(() => setFlashState(null), FLASH_MS);
+  };
+  const flashRef = useRef(showFlash);
+  flashRef.current = showFlash;
 
   // the event listener is registered once; it reads current values through this
   const live = useRef({ expanded, viewing, mode, model, queues, status });
@@ -130,9 +194,15 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       }),
       on<AgentEvent>("agent", (e) => {
         setFeeds((prev) => ({ ...prev, [e.sid]: applyEvent(prev[e.sid] ?? [], e) }));
-        if (e.kind !== "done") return;
         const { expanded, viewing, mode, model, queues, status } = live.current;
         const project = status?.sessions.find((s) => s.id === e.sid)?.project ?? "";
+        if (e.kind === "step_done" && e.duration_ms >= LONG_STEP_MS) {
+          flashRef.current({
+            tone: e.ok ? "ok" : "error",
+            text: `${basename(project)}: ${e.label} — ${e.ok ? "finished" : "failed"} after ${formatSpan(e.duration_ms)}`,
+          });
+        }
+        if (e.kind !== "done") return;
         const notice = noticeFor(e, project);
         if (notice && !expanded) setNotices((prev) => ({ ...prev, [e.sid]: notice }));
         if (notice && (!expanded || viewing !== e.sid)) setUnseen((prev) => ({ ...prev, [e.sid]: notice.tone }));
@@ -183,6 +253,8 @@ export function useAgents(expanded: boolean, viewing: number | null) {
     model,
     limit,
     error,
+    flash,
+    showFlash,
     setMode: (m: AgentMode) => {
       setModeState(m);
       store.set("agent.mode", m);
@@ -256,7 +328,7 @@ const SUGGESTIONS = [
 
 const CYCLE: AgentMode[] = MODES.map((m) => m.id);
 
-export function CodeTab({ agents, session, onHold }: { agents: Agents; session: SessionStatus; onHold: (hold: boolean) => void }) {
+export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; session: SessionStatus; voice: Voice; onHold: (hold: boolean) => void }) {
   const sid = session.id;
   const items = agents.feed(sid);
   const queue = agents.queue(sid);
@@ -270,9 +342,13 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
   const reckless = agents.mode === "reckless";
+  const [images, setImages] = useState<Attachment[]>([]);
+  const [pickingImages, setPickingImages] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
-  // keep the notch open while typing or choosing a model
-  const hold = modelOpen || focused;
+  // keep the notch open while typing, choosing a model or picking images
+  const hold = modelOpen || focused || pickingImages;
   useEffect(() => onHold(hold), [hold, onHold]);
   useEffect(() => () => onHold(false), [onHold]);
 
@@ -321,10 +397,62 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
     agents.send(sid, text);
   };
   const submit = () => {
-    if (!draft.trim()) return;
-    send(draft);
+    if (!draft.trim() && images.length === 0) return;
+    send(withImages(draft, images.map((i) => i.path)));
     setDraft("");
+    images.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
+    setImages([]);
   };
+
+  // ---- images: paste, drop onto the panel, or pick
+  const addPaths = (paths: string[]) => {
+    const ok = paths.filter(isImagePath);
+    if (ok.length < paths.length) setImageError("Only images (PNG, JPG, GIF, WebP) can be attached.");
+    if (ok.length) setImages((prev) => [...prev, ...ok.filter((p) => !prev.some((i) => i.path === p)).map((path) => ({ path }))]);
+  };
+  const onPaste = (e: ReactClipboardEvent) => {
+    const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+    e.preventDefault();
+    setImageError(null);
+    for (const file of files) {
+      const ext = file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
+      file
+        .arrayBuffer()
+        .then((buf) => api.agentSaveImage(new Uint8Array(buf), ext))
+        .then((path) => setImages((prev) => [...prev, { path, preview: URL.createObjectURL(file) }]))
+        .catch((err) => setImageError(String(err)));
+    }
+  };
+  const pickImages = async () => {
+    setImageError(null);
+    setPickingImages(true);
+    try {
+      addPaths(await api.agentPickImages());
+    } catch (err) {
+      setImageError(String(err));
+    } finally {
+      setPickingImages(false);
+      inputRef.current?.focus();
+    }
+  };
+  const addPathsRef = useRef(addPaths);
+  addPathsRef.current = addPaths;
+  useEffect(() => {
+    const sub = getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") setDropping(true);
+      else if (p.type === "leave") setDropping(false);
+      else if (p.type === "drop") {
+        setDropping(false);
+        setImageError(null);
+        addPathsRef.current(p.paths);
+      }
+    });
+    return () => {
+      sub.then((un) => un());
+    };
+  }, []);
 
   // shortcuts for this session
   const keys = useRef<(e: KeyboardEvent) => boolean>(() => false);
@@ -346,6 +474,7 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
   }, []);
 
   const elapsed = running && session.started_at ? formatDuration(now - session.started_at) : "";
+  const stepElapsed = stepTime(session, now);
   const modeInfo = MODES.find((m) => m.id === agents.mode) ?? MODES[0];
 
   return (
@@ -413,15 +542,25 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
       </div>
 
       {agents.error && <p className="error-text">{agents.error}</p>}
+      {imageError && <p className="error-text">{imageError}</p>}
 
       {reckless && <RecklessStrip running={running} />}
+
+      <VoiceStrip voice={voice} />
 
       {/* ---- what's happening ---- */}
       {running && (
         <div className="run-strip">
           <span className="mini-spinner" />
           <span className="run-current">{session.current ?? "Thinking…"}</span>
-          <span className="run-time">{elapsed}</span>
+          {stepElapsed && (
+            <span className="run-step-time" title="How long this step has been running">
+              {stepElapsed}
+            </span>
+          )}
+          <span className="run-time" title="Since the message was sent">
+            {stepElapsed ? `total ${elapsed}` : elapsed}
+          </span>
           <button className="run-stop" title="Stop (Esc)" onClick={() => agents.stop(sid)}>
             <span className="stop-sq" /> Stop <kbd>Esc</kbd>
           </button>
@@ -430,14 +569,36 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
 
       {/* ---- composer: message + how Claude should handle it ---- */}
       <form
-        className={`composer ${running ? "is-running" : ""}`}
+        className={`composer ${running ? "is-running" : ""} ${dropping ? "is-dropping" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
         onClick={() => inputRef.current?.focus()}
       >
+        {images.length > 0 && (
+          <div className="attachments" onClick={(e) => e.stopPropagation()}>
+            {images.map((img) => (
+              <span key={img.path} className="attachment" title={img.path}>
+                {img.preview ? <img src={img.preview} alt="" /> : <ImageIcon />}
+                <span className="attachment-name">{basename(img.path)}</span>
+                <button
+                  type="button"
+                  className="queued-x"
+                  title="Remove"
+                  onClick={() => {
+                    if (img.preview) URL.revokeObjectURL(img.preview);
+                    setImages((prev) => prev.filter((i) => i.path !== img.path));
+                  }}
+                >
+                  <CrossIcon />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
+          onPaste={onPaste}
           ref={inputRef}
           rows={1}
           value={draft}
@@ -521,7 +682,20 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
 
           <span className="mode-hint">{running && draft.trim() ? "Enter queues it — Claude keeps going" : modeInfo.hint}</span>
 
-          {running && !draft.trim() ? (
+          <button
+            type="button"
+            className="mic-btn"
+            title="Attach images (or paste / drop them here)"
+            aria-label="Attach images"
+            disabled={pickingImages}
+            onClick={pickImages}
+          >
+            <ImageIcon />
+          </button>
+
+          <MicButton voice={voice} />
+
+          {running && !draft.trim() && images.length === 0 ? (
             <button type="button" className="send-btn is-stop" title="Stop (Esc)" aria-label="Stop" onClick={() => agents.stop(sid)}>
               <span className="stop-sq" />
             </button>
@@ -531,7 +705,7 @@ export function CodeTab({ agents, session, onHold }: { agents: Agents; session: 
               className={`send-btn ${running ? "is-queue" : ""}`}
               title={running ? "Queue (Enter): sent when Claude finishes" : "Send (Enter)"}
               aria-label="Send"
-              disabled={!draft.trim()}
+              disabled={!draft.trim() && images.length === 0}
             >
               <SendIcon />
             </button>
@@ -679,7 +853,7 @@ function RunBlock({ run, latest, canAct, onAllow, onRetry }: { run: Run; latest:
   const rows = useMemo(() => toRows(run.body), [run.body]);
   return (
     <div className={`run ${latest ? "is-latest" : ""}`}>
-      {run.prompt != null && <div className="prompt">{run.prompt}</div>}
+      {run.prompt != null && <Prompt text={run.prompt} />}
       {!latest && steps > 0 && (
         <button className={`run-fold ${open ? "is-open" : ""}`} onClick={() => setOpen(!open)}>
           <ChevronIcon open={open} />
@@ -703,6 +877,25 @@ function RunBlock({ run, latest, canAct, onAllow, onRetry }: { run: Run; latest:
   );
 }
 
+function Prompt({ text }: { text: string }) {
+  const { text: body, images } = splitImages(text);
+  return (
+    <div className="prompt">
+      {body}
+      {images.length > 0 && (
+        <div className="attachments">
+          {images.map((p) => (
+            <span key={p} className="attachment" title={p}>
+              <ImageIcon />
+              <span className="attachment-name">{basename(p)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StateMark({ state }: { state: "running" | "ok" | "error" }) {
   if (state === "running") return <span className="mini-spinner" />;
   return <span className={`mark mark-${state}`}>{state === "ok" ? <CheckIcon /> : <CrossIcon />}</span>;
@@ -719,6 +912,7 @@ function StepRow({ step }: { step: Step }) {
         </span>
         <span className="step-label">{step.label}</span>
         {expandable && <ChevronIcon open={open} />}
+        <StepTime step={step} />
         <StateMark state={step.state} />
       </button>
       {open && (
@@ -728,6 +922,25 @@ function StepRow({ step }: { step: Step }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Live while it runs, then how long it took (only for steps that take a while). */
+function StepTime({ step }: { step: Step }) {
+  const running = step.state === "running";
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [running]);
+  const ms = running ? now - step.started : step.duration_ms;
+  if (ms == null || ms < 3000) return null;
+  return (
+    <span className={`step-time ${running ? "is-live" : ""}`} title={running ? "Running for" : "Took"}>
+      {running ? formatDuration(ms) : formatSpan(ms)}
+    </span>
   );
 }
 

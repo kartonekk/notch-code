@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { api, AppStatus, ClaudeStatus, Limit, on, SessionStatus, UpdateStatus } from "./api";
-import { Agents, AgentNotice, CodeTab, useAgents, Welcome } from "./CodeTab";
+import { Agents, AgentNotice, CodeTab, stepTime, useAgents, Welcome } from "./CodeTab";
+import { useVoice, voiceLine } from "./Voice";
 import { Embers } from "./Reckless";
 import { PILL_STEP, PILL_WIDTH, ReviewPills, useReview } from "./Review";
 import { SPEAKER_LABEL, TranscribeTab, useTranscription } from "./TranscribeTab";
@@ -25,6 +26,7 @@ import {
   PowerIcon,
   StatusDot,
   store,
+  MicOffIcon,
   UpdateBanner,
 } from "./ui";
 import "./notch.css";
@@ -58,6 +60,7 @@ export default function App() {
 
   const agents = useAgents(expanded, typeof view === "number" ? view : null);
   const review = useReview();
+  const voice = useVoice();
   const rec = useTranscription(status, expanded && view === "transcribe");
   const { recording, paused, phase } = rec;
   const sessions = agents.sessions;
@@ -101,6 +104,24 @@ export default function App() {
     setPicking(false);
     if (path) openSession(path);
   };
+
+  // a spoken prompt goes to the session on screen (else the first one); queued while it works
+  const voicePrompt = useRef<(text: string) => void>(() => {});
+  voicePrompt.current = (text) => {
+    const target = current ?? sessions[0] ?? null;
+    if (!target) {
+      agents.showFlash({ tone: "warn", text: "Heard you, but Claude has no folder open yet" });
+      return;
+    }
+    agents.send(target.id, text);
+    agents.showFlash({ tone: "ok", text: `${target.running ? "Queued for" : "Sent to"} ${basename(target.project)}: “${text}”` });
+  };
+  useEffect(() => {
+    const sub = on<string>("voice-prompt", (text) => voicePrompt.current(text));
+    return () => {
+      sub.then((un) => un());
+    };
+  }, []);
 
   // a short shake + flash when reckless mode is switched on
   const [igniting, setIgniting] = useState(false);
@@ -154,7 +175,8 @@ export default function App() {
           };
   // finished stays on until the notch is opened once
   const finished = !expanded && !working && !!notice;
-  const live = recording || working || finished || pills > 0;
+  const flash = !expanded ? agents.flash : null;
+  const live = recording || working || finished || pills > 0 || voice.active || !!flash;
   const collapsedSize = live ? COLLAPSED_LIVE : COLLAPSED;
 
   const clearTimers = () => {
@@ -258,6 +280,7 @@ export default function App() {
     ? `${agents.running.length > 1 ? `${agents.running.length} working · ` : ""}${basename(busy.project)}: ${busy.current ?? "Working…"}`
     : "";
   const busyElapsed = busy?.started_at ? formatDuration(now - busy.started_at) : "";
+  const busyStep = busy ? stepTime(busy, now) : "";
   // when nothing is going on the notch stays empty; only things that need you show up
   const idleMessage =
     phase === "preparing" && status?.progress != null
@@ -296,17 +319,35 @@ export default function App() {
         <div className="notch-clip">
           {/* ---------- collapsed bar ---------- */}
           <div className="bar" onPointerEnter={() => !expanded && onEnter()}>
-            {working && recording ? (
+            {voice.active ? (
+              <>
+                <span className="voice-wave" aria-hidden>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span className={`ticker ${voice.phase === "hearing" && voice.text ? "" : "muted"}`}>{voiceLine(voice)}</span>
+              </>
+            ) : flash ? (
+              <>
+                <span className={`notice-icon is-${flash.tone}`}>
+                  {flash.tone === "ok" ? <CheckIcon /> : flash.tone === "warn" ? <AlertIcon /> : <CrossIcon />}
+                </span>
+                <span className="ticker">{flash.text}</span>
+              </>
+            ) : working && recording ? (
               <>
                 <StatusDot phase={paused ? "paused" : "recording"} />
                 <span className={`timer ${paused ? "is-paused" : ""}`}>{rec.elapsed}</span>
                 <span className="mini-spinner agent-spin" />
                 <span className="ticker">{busyText}</span>
+                {busyStep && <span className="bar-step-time">{busyStep}</span>}
               </>
             ) : working ? (
               <>
                 <span className="mini-spinner agent-spin" />
                 <span className="ticker">{busyText}</span>
+                {busyStep && <span className="bar-step-time">{busyStep}</span>}
                 <span className="bar-time">{busyElapsed}</span>
               </>
             ) : recording ? (
@@ -389,6 +430,17 @@ export default function App() {
                         <FolderIcon />
                       </IconButton>
                     )}
+                    <IconButton
+                      title={
+                        voice.wake
+                          ? "Voice on: say “Claude, …” or use the mic button; sent when you stop talking. Click to turn off"
+                          : "Voice off: the microphone stays closed. Click to turn on"
+                      }
+                      active={voice.wake}
+                      onClick={() => voice.setWake(!voice.wake)}
+                    >
+                      {voice.wake ? <MicIcon /> : <MicOffIcon />}
+                    </IconButton>
                     <IconButton title={pinned ? "Unpin" : "Keep open"} active={pinned} onClick={() => setPinned(!pinned)}>
                       <PinIcon />
                     </IconButton>
@@ -409,7 +461,7 @@ export default function App() {
                   {!codeView ? (
                     <TranscribeTab t={rec} status={status} />
                   ) : current ? (
-                    <CodeTab key={current.id} agents={agents} session={current} onHold={setHold} />
+                    <CodeTab key={current.id} agents={agents} session={current} voice={voice} onHold={setHold} />
                   ) : (
                     <Welcome agents={agents} onOpen={openSession} />
                   )}

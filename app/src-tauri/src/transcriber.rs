@@ -175,7 +175,7 @@ fn enqueue(job: Job, finals: &mut VecDeque<Job>, partials: &mut HashMap<Speaker,
     }
 }
 
-fn transcribe(
+pub fn transcribe(
     state: &mut WhisperState,
     audio: &[f32],
     cfg: &Config,
@@ -194,8 +194,8 @@ fn transcribe(
         input.iter_mut().for_each(|x| *x *= g);
     }
 
+    let lang = pick_language(state, &input, cfg);
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    let lang = if cfg.language == "auto" { None } else { Some(cfg.language.as_str()) };
     params.set_language(lang);
     params.set_translate(false);
     params.set_n_threads(cfg.threads);
@@ -224,6 +224,36 @@ fn transcribe(
         text.push_str(&s);
     }
     Ok(clean(&text))
+}
+
+/// `language` is "auto", one code ("pl") or a list ("pl,en"). With a list,
+/// Whisper's language detection decides per utterance, but only between
+/// those (plain "auto" wanders off into Russian, Czech, … on short clips).
+fn pick_language<'a>(state: &mut WhisperState, input: &[f32], cfg: &'a Config) -> Option<&'a str> {
+    let langs: Vec<&str> = cfg.language.split(',').map(str::trim).filter(|l| !l.is_empty()).collect();
+    match langs.as_slice() {
+        [] | ["auto"] => return None,
+        [one] => return Some(*one),
+        _ => {}
+    }
+    let threads = cfg.threads.max(1) as usize;
+    let probs = state
+        .pcm_to_mel(input, threads)
+        .and_then(|_| state.lang_detect(0, threads))
+        .map(|(_, p)| p);
+    let probs = match probs {
+        Ok(p) => p,
+        Err(e) => {
+            paths::log(format!("language detection failed: {e:?}"));
+            return Some(langs[0]);
+        }
+    };
+    let score = |l: &str| {
+        whisper_rs::get_lang_id(l)
+            .and_then(|id| probs.get(id as usize).copied())
+            .unwrap_or(0.0)
+    };
+    langs.iter().copied().max_by(|a, b| score(a).total_cmp(&score(b)))
 }
 
 /// Whisper likes to invent these on silence/music (especially in Polish).

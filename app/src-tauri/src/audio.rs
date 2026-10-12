@@ -188,6 +188,8 @@ pub struct CaptureCtx {
     pub ids: Arc<AtomicU64>,
     pub started: Instant,
     pub partials: bool,
+    /// Spoken prompts rather than a meeting (see `Segmenter::for_dictation`).
+    pub dictation: bool,
 }
 
 /// Opens the stream; returns once it is running (so start errors reach the UI)
@@ -240,6 +242,9 @@ fn capture_loop(ctx: &CaptureCtx, ready: &std::sync::mpsc::Sender<Result<(), Str
     };
     let offset_ms = ctx.started.elapsed().as_millis() as u64;
     let mut seg = Segmenter::new(min_threshold, ctx.partials, offset_ms);
+    if ctx.dictation {
+        seg = seg.for_dictation();
+    }
     let mut down = Downsampler::new();
     let mut raw: VecDeque<u8> = VecDeque::new();
     let mut floats: Vec<f32> = Vec::new();

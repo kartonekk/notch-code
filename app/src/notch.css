@@ -651,6 +651,17 @@ button {
 .notice-icon.is-error {
   color: var(--rec);
 }
+/* how long the current step (e.g. a build) has been running */
+.bar-step-time,
+.run-step-time {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(10, 132, 255, 0.16);
+  color: #9ccbff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
 .claude-alert {
   display: inline-flex;
   color: #ff9f0a;
@@ -1152,6 +1163,152 @@ button {
 .send-btn .stop-sq {
   width: 10px;
   height: 10px;
+}
+
+/* ---- spoken prompts */
+.mic-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+.mic-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mic-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--card-hover);
+}
+.mic-btn.is-live {
+  color: #fff;
+  background: var(--rec);
+  box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.5);
+  animation: mic-ring 1.4s ease-out infinite;
+}
+@keyframes mic-ring {
+  to {
+    box-shadow: 0 0 0 8px rgba(255, 69, 58, 0);
+  }
+}
+.voice-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  margin-top: 8px;
+  padding: 0 4px 0 10px;
+  border-radius: 10px;
+  background: rgba(255, 69, 58, 0.09);
+  border: 1px solid rgba(255, 69, 58, 0.28);
+  font-size: 12px;
+  animation: line-in 160ms ease both;
+}
+.voice-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-text.muted {
+  color: var(--muted);
+}
+.voice-note {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+/* three bars bouncing while the microphone takes a prompt */
+.voice-wave {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+}
+.voice-wave i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--rec);
+  animation: voice-bounce 0.9s ease-in-out infinite;
+}
+.voice-wave i:nth-child(2) {
+  animation-delay: -0.3s;
+}
+.voice-wave i:nth-child(3) {
+  animation-delay: -0.6s;
+}
+@keyframes voice-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* ---- images going with a message */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 6px;
+  white-space: normal;
+}
+.prompt .attachments {
+  margin: 6px 0 0;
+}
+.attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  height: 28px;
+  padding: 0 2px 0 6px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  color: #c7c7cc;
+}
+.attachment img {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: cover;
+  margin-left: -3px;
+}
+.attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt .attachment {
+  padding-right: 8px;
+}
+.composer.is-dropping {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25);
+}
+
+/* step duration in the feed: live while running, then how long it took */
+.step-time {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.step-time.is-live {
+  color: #9ccbff;
 }
 
 /* ---------------------------------------------------------------- transcribe tab */
@@ -2031,16 +2188,15 @@ kbd {
   background-size: 200% 100%;
   box-shadow: 0 0 12px rgba(255, 90, 30, 0.55);
   text-shadow: 0 1px 2px rgba(120, 0, 0, 0.6);
-  animation: flame-slide 1.2s linear infinite;
+  animation: flame-slide 6s linear infinite;
 }
 .segmented button.mode-reckless.is-active svg {
   color: #fff;
-  animation: flicker 0.25s ease-in-out infinite alternate;
 }
 .segmented button.mode-reckless.is-arming {
   color: #ff9f0a;
   background: rgba(255, 159, 10, 0.18);
-  animation: arming 0.4s ease-in-out infinite alternate;
+  animation: arming 1s ease-in-out infinite alternate;
 }
 @keyframes arming {
   to {
@@ -2053,18 +2209,13 @@ kbd {
     background-position: 200% 0;
   }
 }
-@keyframes flicker {
-  from {
-    transform: scale(0.85) rotate(-8deg);
-  }
-  to {
-    transform: scale(1.18) rotate(6deg);
-  }
-}
 
-/* Fire racing around the whole outline: two hot spots chase each other round
-   the edge (the top edge sits off-screen), and a blurred glow underneath spins
-   the other way and flickers, so every side is always moving. */
+/* Fire along the outline (the top edge sits off-screen). Compact: hot spots
+   flow sideways along the bottom, with a soft glow. Expanded: two spots half
+   a turn apart circle from the top centre, so one is always on a visible
+   edge. A blurred glow sits underneath. Both fade out towards the screen edge
+   so the sides don't end in a hard cut. Kept slow and steady on purpose: no
+   flicker, no flashes. */
 @property --fire-a {
   syntax: "<angle>";
   inherits: false;
@@ -2078,8 +2229,50 @@ kbd {
   content: "";
   position: absolute;
   pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 40px,
+    #ff2d1a 72px,
+    #ff9f0a 96px,
+    #fff1a8 106px,
+    #ff9f0a 116px,
+    transparent 150px 160px
+  );
+  animation: fire-flow 9s linear infinite;
+  transition: border-radius 260ms var(--ease);
+}
+.notch.is-reckless::before {
+  inset: -4px -2px -2px;
+  padding: 2px;
+  border-radius: 0 0 20px 20px;
+  /* top fade ∩ (outline only) */
+  -webkit-mask:
+    linear-gradient(transparent 4px, #000 24px),
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: source-in, xor;
+  mask-composite: intersect, exclude;
+  z-index: 2;
+  opacity: 0.8;
+}
+.notch.is-reckless::after {
+  inset: -4px -3px -4px;
+  border-radius: 0 0 22px 22px;
+  filter: blur(5px);
+  opacity: 0.4;
+  z-index: -1;
+  -webkit-mask-image: linear-gradient(transparent 4px, #000 28px);
+  mask-image: linear-gradient(transparent 4px, #000 28px);
+}
+.notch.is-reckless.is-working::before,
+.notch.is-reckless.is-working::after {
+  animation-duration: 5s;
+}
+
+.notch.is-reckless.is-expanded::before,
+.notch.is-reckless.is-expanded::after {
   background: conic-gradient(
-    from var(--fire-a),
+    from var(--fire-a) at 50% 0%,
     transparent 0deg,
     #ff2d1a 30deg,
     #ff9f0a 58deg,
@@ -2093,60 +2286,31 @@ kbd {
     #ff9f0a 264deg,
     transparent 310deg
   );
-  transition: border-radius 260ms var(--ease);
-}
-.notch.is-reckless::before {
-  inset: -4px -2px -2px;
-  padding: 2px;
-  border-radius: 0 0 20px 20px;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: 2;
-  animation: fire-spin 2.2s linear infinite;
-}
-.notch.is-reckless::after {
-  inset: -8px -7px -7px;
-  border-radius: 0 0 26px 26px;
-  filter: blur(9px);
-  z-index: -1;
-  animation:
-    fire-spin-rev 3.3s linear infinite,
-    glow-flicker 0.16s steps(2) infinite alternate;
 }
 .notch.is-reckless.is-expanded::before {
   border-radius: 0 0 30px 30px;
+  opacity: 0.9;
+  animation: fire-spin 8s linear infinite;
 }
 .notch.is-reckless.is-expanded::after {
-  border-radius: 0 0 36px 36px;
+  inset: -6px -6px -6px;
+  border-radius: 0 0 34px 34px;
+  filter: blur(7px);
+  opacity: 0.6;
+  animation: fire-spin 8s linear infinite;
 }
-.notch.is-reckless.is-working::before {
-  animation-duration: 0.9s;
+.notch.is-reckless.is-expanded.is-working::before,
+.notch.is-reckless.is-expanded.is-working::after {
+  animation-duration: 4.5s;
 }
-.notch.is-reckless.is-working::after {
-  animation-duration: 1.4s, 0.1s;
+@keyframes fire-flow {
+  to {
+    background-position: 160px 0;
+  }
 }
 @keyframes fire-spin {
   to {
     --fire-a: 360deg;
-  }
-}
-@keyframes fire-spin-rev {
-  from {
-    --fire-a: 360deg;
-  }
-  to {
-    --fire-a: 0deg;
-  }
-}
-@keyframes glow-flicker {
-  from {
-    opacity: 0.95;
-  }
-  to {
-    opacity: 0.6;
   }
 }
 
@@ -2164,56 +2328,36 @@ kbd {
     radial-gradient(ellipse 18% 70% at 25% 120%, rgba(255, 60, 20, 0.38), transparent 70%),
     radial-gradient(ellipse 14% 60% at 55% 125%, rgba(255, 150, 10, 0.3), transparent 70%),
     radial-gradient(ellipse 20% 70% at 82% 120%, rgba(255, 45, 26, 0.34), transparent 70%);
-  animation: heat-drift 2.6s ease-in-out infinite alternate;
+  opacity: 0.5;
+  animation: heat-drift 7s ease-in-out infinite alternate;
+}
+.notch.is-reckless.is-expanded .notch-clip::before {
+  opacity: 0.75;
 }
 .notch.is-reckless .bar {
   position: relative;
   z-index: 1;
 }
 @keyframes heat-drift {
-  0% {
+  from {
     transform: translateX(-12%);
-    opacity: 0.7;
   }
-  50% {
-    opacity: 1;
-  }
-  100% {
+  to {
     transform: translateX(12%);
-    opacity: 0.75;
   }
 }
 
+/* switching Auto on: one soft warm swell, no shake or flash */
 .notch.is-igniting {
   animation: ignite 800ms ease both;
 }
 @keyframes ignite {
-  0% {
-    filter: brightness(1);
-  }
-  10% {
-    transform: translate(-5px, 1px) rotate(-0.6deg);
-    filter: brightness(2.4) saturate(2);
-  }
-  22% {
-    transform: translate(5px, -1px) rotate(0.6deg);
-  }
-  34% {
-    transform: translate(-4px, 1px);
-    filter: brightness(1.6) saturate(1.6);
-  }
-  46% {
-    transform: translate(3px, 0) rotate(0.3deg);
-  }
-  58% {
-    transform: translateX(-2px);
-  }
-  70% {
-    transform: translateX(1px);
-  }
+  0%,
   100% {
-    transform: none;
     filter: none;
+  }
+  40% {
+    filter: brightness(1.15) saturate(1.2);
   }
 }
 
@@ -2256,7 +2400,7 @@ kbd {
   background: repeating-linear-gradient(-45deg, #ffb300 0 7.07px, #161616 7.07px 14.14px);
   -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
   mask-image: linear-gradient(90deg, #000 60%, transparent);
-  animation: hazard-move 0.6s linear infinite;
+  animation: hazard-move 2.4s linear infinite;
 }
 .hazard.is-right {
   -webkit-mask-image: linear-gradient(270deg, #000 60%, transparent);
@@ -2264,7 +2408,7 @@ kbd {
   animation-direction: reverse;
 }
 .reckless-strip.is-fast .hazard {
-  animation-duration: 0.22s;
+  animation-duration: 1.2s;
 }
 @keyframes hazard-move {
   to {
@@ -2282,7 +2426,7 @@ kbd {
   background-size:
     100% 100%,
     200% 100%;
-  animation: border-flow 1.4s linear infinite;
+  animation: border-flow 6s linear infinite;
 }
 @keyframes border-flow {
   to {
@@ -2301,7 +2445,6 @@ kbd {
 }
 .code.is-reckless .run-strip::after {
   background: linear-gradient(90deg, transparent, #ff9f0a, transparent);
-  animation-duration: 0.7s;
 }
 .code.is-reckless .run-strip .mini-spinner {
   color: #ff9f0a;
@@ -2328,7 +2471,25 @@ kbd {
   animation: ember-rise var(--d) ease-in infinite;
 }
 .embers.is-fast i {
-  animation-duration: calc(var(--d) * 0.55);
+  animation-duration: calc(var(--d) * 0.8);
+}
+
+/* Windows "Animation effects" off: keep the colours, drop the motion */
+@media (prefers-reduced-motion: reduce) {
+  .notch.is-reckless::before,
+  .notch.is-reckless::after,
+  .notch.is-reckless .notch-clip::before,
+  .notch.is-igniting,
+  .segmented button.mode-reckless.is-active,
+  .segmented button.mode-reckless.is-arming,
+  .hazard,
+  .code.is-reckless .composer,
+  .embers {
+    animation: none !important;
+  }
+  .embers {
+    display: none;
+  }
 }
 @keyframes ember-rise {
   0% {

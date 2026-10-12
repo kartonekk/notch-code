@@ -46,6 +46,8 @@ pub struct SessionStatus {
     pub has_session: bool,
     /// The step in progress, for the collapsed bar.
     pub current: Option<String>,
+    /// Unix ms when that step started (None while Claude is thinking).
+    pub current_since: Option<u64>,
     /// Unix ms when the running message was sent.
     pub started_at: Option<u64>,
     /// Model of the last run, as Claude reported it.
@@ -104,8 +106,9 @@ pub struct Denied {
 pub enum AgentEvent {
     Start { run: u64, prompt: String },
     Text { run: u64, text: String },
-    Step { run: u64, id: String, icon: &'static str, label: String, detail: Option<String> },
-    StepDone { run: u64, id: String, ok: bool, output: Option<String> },
+    /// `at` = unix ms when it started
+    Step { run: u64, id: String, icon: &'static str, label: String, detail: Option<String>, at: u64 },
+    StepDone { run: u64, id: String, ok: bool, output: Option<String>, label: String, duration_ms: u64 },
     Done { run: u64, ok: bool, stopped: bool, message: Option<String>, duration_ms: u64, denied: Vec<Denied> },
 }
 
@@ -285,6 +288,11 @@ fn describe(name: &str, input: &Value) -> (&'static str, String, Option<String>)
             } else {
                 clip(&description, 70)
             };
+            let label = if input.get("run_in_background").and_then(Value::as_bool).unwrap_or(false) {
+                format!("{label} (in background)")
+            } else {
+                label
+            };
             ("run", label, some(command))
         }
         "Grep" => ("search", format!("Searching for “{}”", clip(&s("pattern"), 40)), some(s("path"))),
@@ -369,6 +377,7 @@ fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String
     session_update(&app, sid, |s| {
         s.status.running = false;
         s.status.current = None;
+        s.status.current_since = None;
         s.status.started_at = None;
     });
     emit(&app, sid, AgentEvent::Done {
@@ -435,6 +444,7 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
 
     let mut out = Outcome { result: None, denied: Vec::new(), auth_failed: false };
     let mut tools: HashMap<String, String> = HashMap::new();
+    let mut step_started: HashMap<String, Instant> = HashMap::new();
     // steps that change files: refresh the review list when they finish
     let mut edits: HashSet<String> = HashSet::new();
     let stdout = child.stdout.take().ok_or("no output from Claude")?;
@@ -478,11 +488,16 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
                             let input = part.get("input").cloned().unwrap_or(Value::Null);
                             let (icon, label, detail) = describe(name, &input);
                             tools.insert(id.clone(), label.clone());
+                            step_started.insert(id.clone(), Instant::now());
                             if icon == "edit" || icon == "create" {
                                 edits.insert(id.clone());
                             }
-                            session_update(app, sid, |s| s.status.current = Some(label.clone()));
-                            emit(app, sid, AgentEvent::Step { run, id, icon, label, detail });
+                            let at = now_ms();
+                            session_update(app, sid, |s| {
+                                s.status.current = Some(label.clone());
+                                s.status.current_since = Some(at);
+                            });
+                            emit(app, sid, AgentEvent::Step { run, id, icon, label, detail, at });
                         }
                         _ => {}
                     }
@@ -494,9 +509,14 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
                     let id = part.get("tool_use_id").and_then(Value::as_str).unwrap_or("").to_string();
                     let ok = !part.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                     let output = part.get("content").and_then(result_text);
-                    session_update(app, sid, |s| s.status.current = Some("Thinking…".into()));
+                    session_update(app, sid, |s| {
+                        s.status.current = Some("Thinking…".into());
+                        s.status.current_since = None;
+                    });
                     let edited = edits.remove(&id);
-                    emit(app, sid, AgentEvent::StepDone { run, id, ok, output });
+                    let label = tools.get(&id).cloned().unwrap_or_default();
+                    let duration_ms = step_started.remove(&id).map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
+                    emit(app, sid, AgentEvent::StepDone { run, id, ok, output, label, duration_ms });
                     if edited && mode != "reckless" {
                         review::refresh(app, &project);
                     }
@@ -686,6 +706,58 @@ pub fn stop_all(app: &AppHandle) {
 #[tauri::command]
 pub fn agent_new(app: AppHandle, sid: u64) {
     session_update(&app, sid, |s| s.claude = None);
+}
+
+// ---------------------------------------------------------------- images
+
+const IMAGE_EXTS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+/// Pasted images are kept this long (Claude may look at them again later in the conversation).
+const KEEP_IMAGES: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+
+/// Saves a pasted image (raw bytes; header `x-ext` = file extension) so Claude
+/// can read it; returns its path.
+#[tauri::command]
+pub fn agent_save_image(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err("No image data.".into());
+    };
+    let ext = request
+        .headers()
+        .get("x-ext")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_ascii_lowercase)
+        .filter(|e| IMAGE_EXTS.contains(&e.as_str()))
+        .unwrap_or_else(|| "png".into());
+    let dir = paths::data_dir().join("images");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // forget old ones
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > KEEP_IMAGES);
+            if old {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    static N: AtomicU64 = AtomicU64::new(0);
+    let name = format!("{}-{}.{ext}", chrono::Local::now().format("%Y%m%d-%H%M%S"), N.fetch_add(1, Ordering::Relaxed));
+    let path = dir.join(name);
+    std::fs::write(&path, data).map_err(|e| format!("Couldn't save the image: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// The system file picker for images; returns the chosen files.
+#[tauri::command]
+pub async fn agent_pick_images(app: AppHandle) -> Result<Vec<String>, String> {
+    let mut dialog = app.dialog().file().set_title("Images for Claude").add_filter("Images", &IMAGE_EXTS);
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    let Some(picked) = dialog.blocking_pick_files() else { return Ok(Vec::new()) };
+    picked
+        .into_iter()
+        .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
+        .collect()
 }
 
 #[tauri::command]

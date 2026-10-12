@@ -7,7 +7,8 @@ use crate::paths;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Whisper language code ("pl", "en", ...) or "auto".
+    /// Whisper language code ("pl"), several to choose from per utterance
+    /// ("pl,en"), or "auto".
     pub language: String,
     /// Model file name from https://huggingface.co/ggerganov/whisper.cpp
     pub model: String,
@@ -25,12 +26,15 @@ pub struct Config {
     pub recent_projects: Vec<String>,
     /// Folders of the open Claude sessions.
     pub sessions: Vec<String>,
+    /// Voice prompts: the microphone stays open for the wake word ("Claude, …"
+    /// sends a prompt) and the mic button is shown. Off = microphone closed.
+    pub voice_wake: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            language: "pl".into(),
+            language: "pl,en".into(),
             model: "ggml-large-v3-turbo-q5_0.bin".into(),
             use_gpu: true,
             threads: std::thread::available_parallelism()
@@ -41,6 +45,7 @@ impl Default for Config {
             project: None,
             recent_projects: Vec::new(),
             sessions: Vec::new(),
+            voice_wake: true,
         }
     }
 }

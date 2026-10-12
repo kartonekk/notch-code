@@ -11,6 +11,7 @@ mod setup;
 mod transcriber;
 mod transcript;
 mod update;
+mod voice;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -29,11 +30,12 @@ use config::Config;
 use transcriber::Speaker;
 use transcript::TranscriptFile;
 
-/// Width of the inverted "ear" corners drawn on both sides of the notch (CSS --ear).
-const EAR: f64 = 12.0;
-/// Window size in logical pixels: the expanded panel (EXPANDED in App.tsx) + ears.
-const WINDOW_W: f64 = 680.0 + EAR * 2.0;
-const WINDOW_H: f64 = 500.0;
+/// Room around the notch for things drawn outside it: the inverted "ear" corners
+/// (CSS --ear, 12px) and the reckless fire glow (`.notch.is-reckless::after`).
+const MARGIN: f64 = 28.0;
+/// Window size in logical pixels: the expanded panel (EXPANDED in App.tsx) + margin.
+const WINDOW_W: f64 = 680.0 + MARGIN * 2.0;
+const WINDOW_H: f64 = 500.0 + MARGIN;
 
 #[derive(Clone, Debug, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -160,6 +162,7 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
         s.progress = None;
         s.backend = Some(backend);
     });
+    voice::model_ready(app);
 
     // Debug builds: NOTCH_CODE_AUTOSTART=<exe name fragment> starts recording
     // that app right away, for end-to-end tests without clicking.
@@ -245,6 +248,7 @@ async fn start_recording(app: AppHandle, pid: u32, include_mic: bool) -> Result<
         ids: ids.clone(),
         started,
         partials: cfg.live_preview,
+        dictation: false,
     };
     let fail = |e: String, stop: &AtomicBool| {
         stop.store(true, Ordering::SeqCst);
@@ -443,6 +447,7 @@ pub fn run() {
         .manage(update::Updater::default())
         .manage(agent::Agent::default())
         .manage(review::Review::default())
+        .manage(voice::Voice::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             retry_setup,
@@ -470,11 +475,16 @@ pub fn run() {
             agent::agent_set_project,
             agent::agent_pick_folder,
             agent::agent_open_folder,
+            agent::agent_save_image,
+            agent::agent_pick_images,
             review::review_status,
             review::review_accept,
             review::review_reject,
             review::review_diff,
             review::review_set_live,
+            voice::voice_status,
+            voice::voice_set_wake,
+            voice::voice_talk,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");
@@ -486,6 +496,7 @@ pub fn run() {
 
             let cfg = Config::load();
             agent::init(app.handle(), &cfg);
+            voice::init(app.handle(), &cfg);
             // keep the logon task pointing at this exe (local dev builds don't register)
             #[cfg(not(debug_assertions))]
             {
