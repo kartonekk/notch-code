@@ -44,12 +44,6 @@ export interface Levels {
   mic: number;
 }
 
-export interface NetStatus {
-  online: boolean;
-  /** TCP connect time to a public host, null when offline */
-  latency_ms: number | null;
-}
-
 export type ClaudeAuthState =
   | "checking"
   | "installing"
@@ -80,6 +74,67 @@ export interface UpdateStatus {
   message: string | null;
 }
 
+/** "reckless" = no permission checks, and changes are kept without review */
+export type AgentMode = "auto" | "plan" | "acceptEdits" | "reckless";
+
+export interface AgentStatus {
+  running: boolean;
+  /** folder Claude works in */
+  project: string | null;
+  /** recently used folders, newest first */
+  recent: string[];
+  /** a conversation is going on (the next message continues it) */
+  has_session: boolean;
+  /** the step in progress, for the collapsed bar */
+  current: string | null;
+  /** unix ms when the running message was sent */
+  started_at: number | null;
+  /** the 5-hour usage window, as last reported by Claude */
+  limit: Limit | null;
+  /** model of the last run, as Claude reported it */
+  model: string | null;
+}
+
+export interface Limit {
+  status: "allowed" | "allowed_warning" | "rejected";
+  /** 0..1, when Claude reports it */
+  used: number | null;
+  /** unix ms when the window resets */
+  resets_at: number | null;
+}
+
+export type StepIcon = "read" | "create" | "edit" | "run" | "search" | "web" | "plan" | "agent" | "other";
+
+/** something the permission mode didn't allow; `rule` unlocks it */
+export interface Denied {
+  label: string;
+  rule: string;
+}
+
+export type AgentEvent =
+  | { kind: "start"; run: number; prompt: string }
+  | { kind: "text"; run: number; text: string }
+  | { kind: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null }
+  | { kind: "step_done"; run: number; id: string; ok: boolean; output: string | null }
+  | { kind: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[] };
+
+export interface FileChange {
+  path: string;
+  name: string;
+  status: "modified" | "created" | "deleted";
+  added: number;
+  removed: number;
+}
+
+export interface ReviewStatus {
+  /** Claude's changes waiting for accept / reject */
+  files: FileChange[];
+  /** live diff: changed files open in VS Code as they change */
+  live: boolean;
+  /** VS Code was found */
+  vscode: boolean;
+}
+
 export const api = {
   status: () => invoke<AppStatus>("get_status"),
   sources: () => invoke<AudioSource[]>("list_sources"),
@@ -103,6 +158,26 @@ export const api = {
   updateStatus: () => invoke<UpdateStatus>("update_status"),
   /** downloads the newer build, swaps the exe and restarts — only on the user's click */
   updateInstall: () => invoke<void>("update_install"),
+  agentStatus: () => invoke<AgentStatus>("agent_status"),
+  /** `allow` = extra --allowedTools rules (after the user allowed a denied step) */
+  /** `model` = alias ("opus", "sonnet", …) or full name; null = Claude Code's default */
+  agentSend: (prompt: string, mode: AgentMode, allow: string[] = [], model: string | null = null) =>
+    invoke<void>("agent_send", { prompt, mode, allow, model }),
+  agentStop: () => invoke<void>("agent_stop"),
+  /** forget the conversation; the next message starts a new one */
+  agentNew: () => invoke<void>("agent_new"),
+  agentSetProject: (path: string) => invoke<void>("agent_set_project", { path }),
+  /** system folder picker; the chosen folder becomes the project */
+  agentPickProject: () => invoke<string | null>("agent_pick_project"),
+  agentOpenProject: () => invoke<void>("agent_open_project"),
+  reviewStatus: () => invoke<ReviewStatus>("review_status"),
+  /** keep Claude's changes (one file, or all when `path` is omitted) */
+  reviewAccept: (path?: string) => invoke<void>("review_accept", { path: path ?? null }),
+  /** restore the originals (one file, or all when `path` is omitted) */
+  reviewReject: (path?: string) => invoke<void>("review_reject", { path: path ?? null }),
+  /** original ↔ current in VS Code */
+  reviewDiff: (path: string) => invoke<void>("review_diff", { path }),
+  reviewSetLive: (live: boolean) => invoke<void>("review_set_live", { live }),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

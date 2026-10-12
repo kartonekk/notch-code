@@ -19,6 +19,10 @@ pub struct Config {
     pub live_preview: bool,
     /// Start Notch Code when you sign in to Windows (tray menu: "Start with Windows").
     pub autostart: bool,
+    /// Folder Claude works in (Code tab).
+    pub project: Option<String>,
+    /// Recently used project folders, newest first.
+    pub recent_projects: Vec<String>,
 }
 
 impl Default for Config {
@@ -32,6 +36,8 @@ impl Default for Config {
                 .unwrap_or(4),
             live_preview: true,
             autostart: true,
+            project: None,
+            recent_projects: Vec::new(),
         }
     }
 }

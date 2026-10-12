@@ -1,7 +1,17 @@
 # Notch Code
 
-Live meeting transcription (Webex, Teams, Zoom, browser…) — fully local, no cloud.
-The app lives in a "notch" at the top of the screen: hover over it, pick the app to record audio from, and you're done.
+Claude Code and live meeting transcription in a "notch" at the top of the screen. Hover over it: the panel has two tabs, **Code** (Ctrl+1) and **Transcribe** (Ctrl+2). When nothing is going on the notch stays empty.
+
+### Code
+
+- Pick a project folder, type what you want, Enter. Claude Code runs hidden in that folder; every step shows up as one plain line ("Editing App.tsx", "Running npm test") — click it for the command / output. While the notch is closed, the bar shows the current step, then "Claude finished".
+- **Modes**: *Auto* (Claude decides, risky commands blocked), *Edits* (commands need your OK), *Plan* (read-only), *Reckless* (no permission checks, changes kept automatically — with a car in the notch). Anything a mode blocks is listed with **Allow and continue**.
+- **Model** picker (Default / Fable / Opus / Sonnet / Haiku) and the **5-hour limit** (% left, reset time) in the header, as reported by Claude.
+- **Review changes**: each file is snapshotted before Claude first edits it (a `PreToolUse` hook). Changed files are listed above the input with **Accept** / **Reject** (per file or all); with the notch closed a pill drops below it with the same buttons. **Live diff** opens every changed file in VS Code as original ↔ current, following Claude's edits live.
+
+### Transcribe
+
+Live meeting transcription (Webex, Teams, Zoom, browser…) — fully local, no cloud. Pick the app to record audio from and start.
 
 - **Audio from a single app** — WASAPI *process loopback* capture (only the selected program, not the whole system) + optionally your microphone (labelled "Me").
 - **Local speech recognition** — [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (`large-v3-turbo`, q5_0 quantization) on the GPU via Vulkan.

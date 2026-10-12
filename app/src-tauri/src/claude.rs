@@ -25,6 +25,7 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_POLL: Duration = Duration::from_secs(3);
 const INSTALL_COMMAND: &str = "irm https://claude.ai/install.ps1 | iex";
+const EXPIRED: &str = "Claude's sign-in has expired. Sign in again.";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -61,6 +62,10 @@ pub struct Claude {
     last_check: Mutex<Option<Instant>>,
     /// An install, sign-in or check is running.
     busy: AtomicBool,
+    /// A real request failed to authenticate. `auth status` can still say
+    /// "signed in" then (a session that expired and can't be refreshed), so
+    /// this wins until a sign-in completes or a request succeeds again.
+    auth_failed: AtomicBool,
 }
 
 #[derive(Deserialize)]
@@ -178,6 +183,11 @@ fn check(app: &AppHandle) {
         return;
     };
     let status = match auth_status(&cli) {
+        Ok(Some(_)) if app.state::<Claude>().auth_failed.load(Ordering::SeqCst) => ClaudeStatus {
+            state: AuthState::SignedOut,
+            message: Some(EXPIRED.into()),
+            ..Default::default()
+        },
         Ok(Some(plan)) => ClaudeStatus { state: AuthState::SignedIn, plan, ..Default::default() },
         Ok(None) => ClaudeStatus {
             state: AuthState::SignedOut,
@@ -250,6 +260,15 @@ fn login(app: &AppHandle, window: bool) {
         ..Default::default()
     });
 
+    // After an auth failure `auth status` still says signed in. Drop the session
+    // that can't be refreshed so it tells the truth again; if that fails, only
+    // a finished `auth login` counts.
+    let mut stale = app.state::<Claude>().auth_failed.load(Ordering::SeqCst);
+    if stale {
+        let logout = hidden(&cli).args(["auth", "logout"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        stale = !logout.is_ok_and(|s| s.success());
+    }
+
     let mut cmd = Command::new(&cli);
     cmd.args(["auth", "login", "--claudeai"]);
     #[cfg(windows)]
@@ -276,12 +295,25 @@ fn login(app: &AppHandle, window: bool) {
 
     let deadline = Instant::now() + LOGIN_TIMEOUT;
     let mut exited = false;
+    let mut exited_ok = false;
     while Instant::now() < deadline {
         std::thread::sleep(LOGIN_POLL);
-        exited = exited || matches!(child.try_wait(), Ok(Some(_)));
+        if !exited {
+            if let Ok(Some(st)) = child.try_wait() {
+                exited = true;
+                exited_ok = st.success();
+            }
+        }
         if let Ok(Some(plan)) = auth_status(&cli) {
+            if stale && !exited_ok {
+                if exited {
+                    break;
+                }
+                continue;
+            }
             let _ = child.kill();
             let _ = child.wait();
+            app.state::<Claude>().auth_failed.store(false, Ordering::SeqCst);
             *app.state::<Claude>().last_check.lock().unwrap() = Some(Instant::now());
             set(app, ClaudeStatus { state: AuthState::SignedIn, plan, ..Default::default() });
             return;
@@ -299,6 +331,24 @@ fn login(app: &AppHandle, window: bool) {
         suggest_window: !window,
         ..Default::default()
     });
+}
+
+/// A coding request failed to authenticate: remind the user to sign in.
+pub fn report_auth_failure(app: &AppHandle) {
+    app.state::<Claude>().auth_failed.store(true, Ordering::SeqCst);
+    set(app, ClaudeStatus {
+        state: AuthState::SignedOut,
+        message: Some(EXPIRED.into()),
+        ..Default::default()
+    });
+}
+
+/// A coding request went through: an earlier auth failure no longer applies.
+pub fn report_auth_ok(app: &AppHandle) {
+    if app.state::<Claude>().auth_failed.swap(false, Ordering::SeqCst) {
+        let app = app.clone();
+        std::thread::spawn(move || exclusive(&app, || check(&app)));
+    }
 }
 
 // ---------------------------------------------------------------- lifecycle

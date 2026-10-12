@@ -1,11 +1,12 @@
+mod agent;
 mod audio;
 mod autostart;
 mod claude;
 mod config;
 mod dsp;
 mod hover;
-mod net;
 mod paths;
+mod review;
 mod setup;
 mod transcriber;
 mod transcript;
@@ -31,8 +32,8 @@ use transcript::TranscriptFile;
 /// Width of the inverted "ear" corners drawn on both sides of the notch (CSS --ear).
 const EAR: f64 = 12.0;
 /// Window size in logical pixels: the expanded panel (EXPANDED in App.tsx) + ears.
-const WINDOW_W: f64 = 580.0 + EAR * 2.0;
-const WINDOW_H: f64 = 420.0;
+const WINDOW_W: f64 = 620.0 + EAR * 2.0;
+const WINDOW_H: f64 = 480.0;
 
 #[derive(Clone, Debug, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -395,6 +396,7 @@ fn open_folder(app: &AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn quit_app(app: AppHandle) {
+    agent::agent_stop(app.clone());
     let _ = stop_recording(app.clone(), None).await;
     app.exit(0);
 }
@@ -423,6 +425,10 @@ fn place_window(window: &WebviewWindow) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // started by Claude as the review snapshot hook: do that and nothing else
+    if review::run_hook_if_requested() {
+        return;
+    }
     std::panic::set_hook(Box::new(|info| paths::log(format!("PANIC: {info}"))));
     update::finish_pending();
     paths::log("Notch Code starting");
@@ -431,9 +437,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .manage(claude::Claude::default())
         .manage(update::Updater::default())
+        .manage(agent::Agent::default())
+        .manage(review::Review::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             retry_setup,
@@ -452,16 +461,29 @@ pub fn run() {
             update::update_status,
             update::update_check,
             update::update_install,
+            agent::agent_status,
+            agent::agent_send,
+            agent::agent_stop,
+            agent::agent_new,
+            agent::agent_set_project,
+            agent::agent_pick_project,
+            agent::agent_open_project,
+            review::review_status,
+            review::review_accept,
+            review::review_reject,
+            review::review_diff,
+            review::review_set_live,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");
             place_window(&window)?;
-            hover::set_notch(270.0, 36.0);
+            hover::set_notch(280.0, 36.0);
             window.set_ignore_cursor_events(true)?;
             window.show()?;
             hover::spawn(window.clone());
 
             let cfg = Config::load();
+            agent::init(app.handle(), &cfg);
             // keep the logon task pointing at this exe (local dev builds don't register)
             #[cfg(not(debug_assertions))]
             {
@@ -502,7 +524,6 @@ pub fn run() {
                 .build(app)?;
 
             start_setup(app.handle().clone());
-            net::spawn_monitor(app.handle().clone());
             claude::spawn_monitor(app.handle().clone());
             update::spawn_checker(app.handle().clone());
             Ok(())
