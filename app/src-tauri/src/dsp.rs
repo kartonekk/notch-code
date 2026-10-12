@@ -84,7 +84,7 @@ pub struct Segmenter {
 
 const START_FRAMES: usize = 3; // 60 ms of speech opens an utterance
 const END_FRAMES: usize = 35; // 700 ms of silence closes it
-const DICTATION_END_FRAMES: usize = 60; // 1.2 s: people pause while thinking up a prompt
+const DICTATION_END_FRAMES: usize = 250; // 5 s: people pause while thinking up a prompt
 const KEEP_TAIL: usize = RATE / 5; // keep 200 ms of the trailing silence
 const PREROLL: usize = RATE * 3 / 10; // 300 ms before the onset
 const MAX_UTT: usize = RATE * 20; // force a cut after 20 s

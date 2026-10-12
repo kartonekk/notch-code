@@ -2397,7 +2397,8 @@ kbd {
   flex: none;
   width: 56px;
   align-self: stretch;
-  background: repeating-linear-gradient(-45deg, #ffb300 0 7.07px, #161616 7.07px 14.14px);
+  /* one 20px tile = exactly two stripes, so a 20px shift loops without a seam */
+  background: repeating-linear-gradient(-45deg, #ffb300 0 25%, #161616 0 50%) 0 0 / 20px 20px;
   -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
   mask-image: linear-gradient(90deg, #000 60%, transparent);
   animation: hazard-move 2.4s linear infinite;
@@ -2472,6 +2473,19 @@ kbd {
 }
 .embers.is-fast i {
   animation-duration: calc(var(--d) * 0.8);
+}
+
+/* Auto on but nothing running: the fire holds still, embers go out */
+.notch.is-reckless:not(.is-working)::before,
+.notch.is-reckless:not(.is-working)::after,
+.notch.is-reckless:not(.is-working) .notch-clip::before,
+.notch.is-reckless:not(.is-working) .segmented button.mode-reckless.is-active,
+.notch.is-reckless:not(.is-working) .hazard,
+.notch.is-reckless:not(.is-working) .code.is-reckless .composer {
+  animation-play-state: paused !important;
+}
+.notch.is-reckless:not(.is-working) .embers {
+  display: none;
 }
 
 /* Windows "Animation effects" off: keep the colours, drop the motion */
