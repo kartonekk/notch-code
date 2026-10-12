@@ -2534,17 +2534,13 @@ kbd {
 }
 
 /* Auto on but nothing running: no fire at all. Only the mode button
-   (static) says the mode is on; everything lights up once Claude works. */
+   (still animated) says the mode is on; everything lights up once Claude works. */
 .notch.is-reckless:not(.is-working)::before,
 .notch.is-reckless:not(.is-working)::after,
 .notch.is-reckless:not(.is-working) .notch-clip::before,
 .notch.is-reckless:not(.is-working) .embers,
 .notch.is-reckless:not(.is-working) .reckless-strip {
   display: none !important;
-}
-.notch.is-reckless:not(.is-working) .segmented button.mode-reckless.is-active {
-  animation: none;
-  box-shadow: none;
 }
 .notch.is-reckless:not(.is-working) .code.is-reckless .composer {
   animation: none;
