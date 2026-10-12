@@ -265,10 +265,11 @@ def topbar(L, active, rec_timer=None):
     out += text(sx + 12, y + 20, "+", 17, "#8e8e93", 500, "middle")
     # right side
     R = L + 680 - 14
-    out += f'<rect x="{R - 166}" y="{y + 4}" width="72" height="22" rx="11" fill="#fff" fill-opacity=".06"/>'
-    out += text(R - 156, y + 19, "5h", 11, "#8e8e93", 600)
-    out += f'<rect x="{R - 138}" y="{y + 13}" width="26" height="4" rx="2" fill="#fff" fill-opacity=".1"/><rect x="{R - 138}" y="{y + 13}" width="16" height="4" rx="2" fill="#30d158"/>'
-    out += text(R - 108, y + 19, "62%", 11, "#8e8e93", 600)
+    # 5-hour limit chip, ending well before the icons
+    out += f'<rect x="{R - 190}" y="{y + 4}" width="88" height="22" rx="11" fill="#fff" fill-opacity=".06"/>'
+    out += text(R - 179, y + 19, "5h", 11, "#8e8e93", 600)
+    out += f'<rect x="{R - 161}" y="{y + 13}" width="26" height="4" rx="2" fill="#fff" fill-opacity=".1"/><rect x="{R - 161}" y="{y + 13}" width="16" height="4" rx="2" fill="#30d158"/>'
+    out += text(R - 113, y + 19, "62%", 11, "#8e8e93", 600, "end")
     out += icon_mic(R - 82, y + 8, "#0a84ff") + icon_pin(R - 54, y + 8) + icon_power(R - 26, y + 8)
     return out
 
