@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, StepIcon } from "./api";
+import { Markdown } from "./Markdown";
 import { RecklessStrip } from "./Reckless";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
 import {
@@ -1010,25 +1011,12 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
   );
 }
 
-/** Claude's text: ``` fences as code blocks, `inline` code, everything else as-is. */
+/** Claude's text, as Markdown. */
 function RichText({ text }: { text: string }) {
-  const parts = text.split(/```[^\n]*\n?/);
   return (
     <div className="answer">
       <CopyButton text={text} />
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <pre key={i} className="code-block">
-            {part.replace(/\n$/, "")}
-          </pre>
-        ) : (
-          <span key={i}>
-            {part.split(/(`[^`\n]+`)/).map((chunk, j) =>
-              chunk.startsWith("`") && chunk.endsWith("`") && chunk.length > 2 ? <code key={j}>{chunk.slice(1, -1)}</code> : chunk,
-            )}
-          </span>
-        ),
-      )}
+      <Markdown text={text} />
     </div>
   );
 }

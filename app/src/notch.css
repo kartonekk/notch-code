@@ -1007,6 +1007,61 @@ button {
   white-space: pre;
 }
 
+/* Markdown in answers */
+.answer p,
+.answer ul,
+.answer ol,
+.answer blockquote {
+  margin: 0 0 6px;
+}
+.answer > :last-child {
+  margin-bottom: 0;
+}
+.answer ul,
+.answer ol {
+  padding-left: 20px;
+}
+.answer li + li {
+  margin-top: 2px;
+}
+.answer li::marker {
+  color: var(--muted);
+}
+.answer blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+.answer strong {
+  font-weight: 600;
+  color: #fff;
+}
+.answer hr {
+  margin: 8px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.md-h {
+  margin: 8px 0 4px;
+  font-weight: 600;
+  color: #fff;
+}
+.answer > .md-h:first-of-type {
+  margin-top: 0;
+}
+.md-h1 {
+  font-size: 15px;
+}
+.md-h2 {
+  font-size: 14px;
+}
+.md-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.25);
+  text-underline-offset: 2px;
+}
+
 .step {
   border-radius: 8px;
   animation: line-in 160ms ease both;
@@ -1760,11 +1815,14 @@ button {
   border-radius: 50%;
   display: none;
   place-items: center;
+  /* the browser's default button padding leaves no room and pushes the cross right */
+  padding: 0;
   background: #3a3a3e;
   color: #fff;
   border: 2px solid #000;
 }
 .rail-close svg {
+  display: block;
   width: 8px;
   height: 8px;
 }
