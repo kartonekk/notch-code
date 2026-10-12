@@ -527,7 +527,9 @@ function UpdateBanner({ update, recording, onLater }: { update: UpdateStatus; re
     ? `Downloading update… ${Math.round((update.progress ?? 0) * 100)}%`
     : update.state === "error"
       ? `Update failed: ${update.message ?? "unknown error"}`
-      : `Update available — build ${update.available}`;
+      : update.current == null
+        ? `Build ${update.available} available (you're on a local build)`
+        : `Update available — build ${update.available}`;
   return (
     <div className={`notice-banner ${update.state === "error" ? "is-error" : ""}`}>
       {downloading ? <span className="mini-spinner" /> : <DownloadIcon />}

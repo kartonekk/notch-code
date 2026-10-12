@@ -31,7 +31,7 @@ $env:CMAKE_GENERATOR = 'Ninja'
 if (-not $env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = (Split-Path -Qualifier $PSScriptRoot) + '\tkb' }
 
 if (-not $env:VULKAN_SDK) { $env:VULKAN_SDK = [Environment]::GetEnvironmentVariable('VULKAN_SDK', 'Machine') }
-if (-not $env:VULKAN_SDK) { throw 'Brak Vulkan SDK (winget install KhronosGroup.VulkanSDK).' }
+if (-not $env:VULKAN_SDK) { throw 'Vulkan SDK not found (winget install KhronosGroup.VulkanSDK).' }
 
 if (-not $env:LIBCLANG_PATH) { $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin' }
 

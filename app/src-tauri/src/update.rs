@@ -2,6 +2,8 @@
 //! `build-<run number>` with NotchCode.exe and stamps that number into the exe
 //! (NOTCH_BUILD). The app only *looks* for a newer build and tells the user;
 //! downloading and installing happen only when they click "Update".
+//! Local release builds have no number and count as build 0, so the newest CI
+//! build is offered to them too; dev builds (`tauri dev`) never check.
 //!
 //! Installing: the new exe is downloaded next to the running one and checked,
 //! the running exe is renamed to `.old` (Windows allows renaming a running
@@ -26,7 +28,7 @@ const ASSET: &str = "NotchCode.exe";
 const FIRST_CHECK: Duration = Duration::from_secs(30);
 const CHECK_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
-/// Build number of this exe; None for local builds, which never update.
+/// Build number of this exe; None for local builds.
 pub fn current_build() -> Option<u64> {
     option_env!("NOTCH_BUILD").and_then(|s| s.trim().parse().ok())
 }
@@ -121,7 +123,7 @@ fn latest(client: &reqwest::blocking::Client) -> Result<Option<(u64, Asset)>, St
 }
 
 fn check(app: &AppHandle) {
-    let Some(current) = current_build() else { return };
+    let current = current_build().unwrap_or(0);
     let found = client().and_then(|c| latest(&c));
     let updater = app.state::<Updater>();
     match found {
@@ -143,12 +145,13 @@ fn check(app: &AppHandle) {
 
 /// Looks for a newer build shortly after launch and then every 15 minutes.
 pub fn spawn_checker(app: AppHandle) {
+    if cfg!(debug_assertions) {
+        paths::log("dev build: update check off");
+        return;
+    }
     match current_build() {
         Some(n) => paths::log(format!("build {n}")),
-        None => {
-            paths::log("local build: update check off");
-            return;
-        }
+        None => paths::log("local build: newest CI build will be offered"),
     }
     std::thread::spawn(move || {
         std::thread::sleep(FIRST_CHECK);

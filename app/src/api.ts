@@ -71,7 +71,7 @@ export interface ClaudeStatus {
 
 export interface UpdateStatus {
   state: "idle" | "available" | "downloading" | "error";
-  /** build number of this exe; null for local builds (no updates) */
+  /** build number of this exe; null for local builds (they're offered the newest CI build) */
   current: number | null;
   /** build number of the newer release */
   available: number | null;

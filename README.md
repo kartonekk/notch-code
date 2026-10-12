@@ -27,7 +27,7 @@ Folders from the app's former name (`%LOCALAPPDATA%\Transkrypt`, `Documents\Tran
 ## Start with Windows & updates
 
 - **Start with Windows** — on every launch the app registers a Task Scheduler logon task (`Notch Code`) for the current user, so it starts right at sign-in (no startup-app delay, normal priority). Toggle it from the tray menu (**Start with Windows**) or `autostart` in `config.json`. Local dev builds don't register.
-- **Updates** — builds from CI carry their build number. Shortly after launch and every 15 minutes the app checks GitHub Releases for a newer `build-<n>`; if there is one, the notch shows **Update available** with **Update** / **Later**. Nothing is downloaded or installed until you click **Update** (disabled while recording). The new exe is checked (size, SHA-256 from GitHub, PE header), swapped in place and the app restarts. Tray: **Check for updates**. Local builds never update.
+- **Updates** — builds from CI carry their build number. Shortly after launch and every 15 minutes the app checks GitHub Releases for a newer `build-<n>`; if there is one, the notch shows **Update available** with **Update** / **Later**. Nothing is downloaded or installed until you click **Update** (disabled while recording). The new exe is checked (size, SHA-256 from GitHub, PE header), swapped in place and the app restarts. Tray: **Check for updates**. Local release builds count as build 0, so they're offered the newest CI build; `tauri dev` builds never check.
 
 ## Claude Code
 
@@ -44,6 +44,12 @@ Requires: Node 22+, Rust (stable), Visual Studio Build Tools (C++), CMake, LLVM,
 winget install Microsoft.VisualStudio.2022.BuildTools Rustlang.Rustup Kitware.CMake LLVM.LLVM KhronosGroup.VulkanSDK
 cd app; npm install; cd ..
 powershell -ExecutionPolicy Bypass -File .\app\scripts\build-release.ps1   # -> release\NotchCode.exe
+```
+
+Build and swap it in for the copy you use — stops the running app, installs to `%LOCALAPPDATA%\Programs\Notch Code\NotchCode.exe` and starts it (`-SkipBuild` reinstalls the last `release\NotchCode.exe`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\app\scripts\deploy.ps1
 ```
 
 Dev mode: `. .\app\scripts\dev-env.ps1; cd app; npm run tauri dev`.
