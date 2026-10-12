@@ -81,6 +81,9 @@ jobs:
 
       - name: Build NotchCode.exe
         working-directory: app
+        env:
+          # stamped into the exe; the app offers updates from newer build-<n> releases
+          NOTCH_BUILD: ${{ github.run_number }}
         run: npm run tauri build -- --no-bundle
 
       - name: Collect exe

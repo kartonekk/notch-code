@@ -1,4 +1,6 @@
 mod audio;
+mod autostart;
+mod claude;
 mod config;
 mod dsp;
 mod hover;
@@ -7,6 +9,7 @@ mod paths;
 mod setup;
 mod transcriber;
 mod transcript;
+mod update;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -14,7 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Size, LogicalSize, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
@@ -421,6 +424,7 @@ fn place_window(window: &WebviewWindow) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| paths::log(format!("PANIC: {info}"))));
+    update::finish_pending();
     paths::log("Notch Code starting");
     paths::init_whisper_logging();
 
@@ -428,6 +432,8 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
+        .manage(claude::Claude::default())
+        .manage(update::Updater::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             retry_setup,
@@ -439,6 +445,13 @@ pub fn run() {
             open_transcript,
             open_transcripts_folder,
             quit_app,
+            claude::claude_status,
+            claude::claude_refresh,
+            claude::claude_login,
+            claude::claude_install,
+            update::update_status,
+            update::update_check,
+            update::update_install,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");
@@ -448,17 +461,38 @@ pub fn run() {
             window.show()?;
             hover::spawn(window.clone());
 
+            let cfg = Config::load();
+            // keep the logon task pointing at this exe (local dev builds don't register)
+            #[cfg(not(debug_assertions))]
+            {
+                let on = cfg.autostart;
+                std::thread::spawn(move || autostart::apply(on));
+            }
+
             let open_item = MenuItem::with_id(app, "folder", "Transcripts folder", true, None::<&str>)?;
+            let autostart_item =
+                CheckMenuItem::with_id(app, "autostart", "Start with Windows", true, cfg.autostart, None::<&str>)?;
+            let update_item = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
-            TrayIconBuilder::new()
+            let separator = PredefinedMenuItem::separator(app)?;
+            let menu = Menu::with_items(app, &[&open_item, &autostart_item, &update_item, &separator, &quit_item])?;
+            TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().cloned().expect("icon"))
                 .tooltip("Notch Code")
                 .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "folder" => {
                         let _ = open_folder(app);
                     }
+                    "autostart" => {
+                        let on = autostart_item.is_checked().unwrap_or(true);
+                        let mut cfg = Config::load();
+                        cfg.autostart = on;
+                        cfg.save();
+                        app.state::<AppState>().config.lock().unwrap().autostart = on;
+                        std::thread::spawn(move || autostart::apply(on));
+                    }
+                    "check_updates" => update::update_check(app.clone()),
                     "quit" => {
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move { quit_app(app).await });
@@ -469,6 +503,8 @@ pub fn run() {
 
             start_setup(app.handle().clone());
             net::spawn_monitor(app.handle().clone());
+            claude::spawn_monitor(app.handle().clone());
+            update::spawn_checker(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

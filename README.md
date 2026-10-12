@@ -24,6 +24,16 @@ Requirements: Windows 10 2004+ / Windows 11, a GPU driver with Vulkan support (N
 
 Folders from the app's former name (`%LOCALAPPDATA%\Transkrypt`, `Documents\Transkrypty`) are moved to the new locations automatically on first launch.
 
+## Start with Windows & updates
+
+- **Start with Windows** — on every launch the app registers a Task Scheduler logon task (`Notch Code`) for the current user, so it starts right at sign-in (no startup-app delay, normal priority). Toggle it from the tray menu (**Start with Windows**) or `autostart` in `config.json`. Local dev builds don't register.
+- **Updates** — builds from CI carry their build number. Shortly after launch and every 6 hours the app checks GitHub Releases for a newer `build-<n>`; if there is one, the notch shows **Update available** with **Update** / **Later**. Nothing is downloaded or installed until you click **Update** (disabled while recording). The new exe is checked (size, SHA-256 from GitHub, PE header), swapped in place and the app restarts. Tray: **Check for updates**. Local builds never update.
+
+## Claude Code
+
+On startup the app looks for the Claude Code CLI (`%USERPROFILE%\.local\bin\claude.exe` or `PATH`) and installs it with the official installer if it's missing (log: `%LOCALAPPDATA%\Notch Code\claude-install.log`).
+It checks the sign-in (`claude auth status`) at startup, every 30 minutes and when the notch is opened. When Claude needs to be signed in again, a key icon appears in the notch, the bar says *Claude needs sign-in*, and the panel shows a reminder with **Sign in** (opens the browser) — or **Sign-in window** if the background sign-in can't finish.
+
 `config.json`: `language` (`pl`, `en`, `auto`…), `model`, `use_gpu`, `threads`, `live_preview`.
 
 ## Building locally

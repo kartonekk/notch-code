@@ -17,6 +17,8 @@ pub struct Config {
     pub threads: i32,
     /// Show live (not yet final) text while someone is still speaking.
     pub live_preview: bool,
+    /// Start Notch Code when you sign in to Windows (tray menu: "Start with Windows").
+    pub autostart: bool,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
                 .map(|n| (n.get() as i32 / 2).clamp(2, 8))
                 .unwrap_or(4),
             live_preview: true,
+            autostart: true,
         }
     }
 }
@@ -47,9 +50,13 @@ impl Config {
             })
             .unwrap_or_default();
         // (re)write so the user can see every available option
-        if let Ok(json) = serde_json::to_string_pretty(&cfg) {
-            let _ = std::fs::write(&path, json);
-        }
+        cfg.save();
         cfg
+    }
+
+    pub fn save(&self) {
+        if let Ok(json) = serde_json::to_string_pretty(self) {
+            let _ = std::fs::write(paths::data_dir().join("config.json"), json);
+        }
     }
 }

@@ -649,3 +649,87 @@ button {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------------------------------------------------------------- claude sign-in */
+
+.claude-alert {
+  display: inline-flex;
+  color: #ff9f0a;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.claude-alert svg {
+  display: block;
+}
+
+.claude-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 5px 5px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: rgba(255, 159, 10, 0.14);
+  color: #ffcc80;
+  font-size: 12px;
+}
+.claude-banner.is-working {
+  background: rgba(10, 132, 255, 0.14);
+  color: #9ccaff;
+}
+.claude-banner svg {
+  flex: none;
+}
+.claude-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-sm {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-accent:hover {
+  background: #3d9bff;
+}
+
+.mini-spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: currentColor;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---------------------------------------------------------------- update notice */
+
+.notice-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 5px 5px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: rgba(10, 132, 255, 0.14);
+  color: #9ccaff;
+  font-size: 12px;
+}
+.notice-banner.is-error {
+  background: rgba(255, 69, 58, 0.14);
+  color: #ff8a80;
+}
+.notice-banner svg {
+  flex: none;
+}

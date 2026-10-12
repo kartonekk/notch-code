@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, AppStatus, AudioSource, Levels, NetStatus, on, Segment } from "./api";
+import { api, AppStatus, AudioSource, ClaudeStatus, Levels, NetStatus, on, Segment, UpdateStatus } from "./api";
 import "./notch.css";
 
 // Notch sizes in logical pixels. The window itself always has the EXPANDED size
@@ -11,6 +11,10 @@ const EXPANDED = { w: 580, h: 420 };
 const ANIM_MS = 260;
 
 const SPEAKER_LABEL = { me: "Me", others: "Others" } as const;
+/** "Later" on the Claude sign-in reminder hides it for this long */
+const CLAUDE_SNOOZE_MS = 60 * 60 * 1000;
+/** "Later" on the update notice hides it for this long */
+const UPDATE_SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -22,6 +26,10 @@ export default function App() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [levels, setLevels] = useState<Levels>({ app: 0, mic: 0 });
   const [net, setNet] = useState<NetStatus | null>(null);
+  const [claude, setClaude] = useState<ClaudeStatus | null>(null);
+  const [claudeSnoozedUntil, setClaudeSnoozedUntil] = useState(0);
+  const [update, setUpdate] = useState<UpdateStatus | null>(null);
+  const [updateSnoozedUntil, setUpdateSnoozedUntil] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   /** "End" was clicked: asking for the meeting subject (file name) */
@@ -42,10 +50,14 @@ export default function App() {
   // ---- backend wiring -------------------------------------------------------
   useEffect(() => {
     api.status().then(setStatus).catch(() => {});
+    api.claudeStatus().then(setClaude).catch(() => {});
+    api.updateStatus().then(setUpdate).catch(() => {});
     const subs = [
       on<AppStatus>("status", setStatus),
       on<Levels>("levels", setLevels),
       on<NetStatus>("net", setNet),
+      on<ClaudeStatus>("claude", setClaude),
+      on<UpdateStatus>("update", setUpdate),
       on<Segment>("segment", (seg) =>
         setSegments((prev) => {
           const i = prev.findIndex((s) => s.id === seg.id);
@@ -102,6 +114,7 @@ export default function App() {
     clearTimers();
     await api.setNotchSize(EXPANDED.w, EXPANDED.h);
     setExpanded(true);
+    api.claudeRefresh().catch(() => {});
   }, []);
 
   const collapse = useCallback(() => {
@@ -207,6 +220,12 @@ export default function App() {
   }, [segments]);
 
   const size = expanded ? EXPANDED : collapsedSize;
+  const claudeAlert = needsClaudeAttention(claude);
+  const claudeWorking = claude?.state === "signing_in" || claude?.state === "installing";
+  const showClaudeBanner = claudeWorking || (claudeAlert && Date.now() >= claudeSnoozedUntil);
+  const showUpdate =
+    update?.state === "downloading" ||
+    ((update?.state === "available" || update?.state === "error") && Date.now() >= updateSnoozedUntil);
 
   return (
     <div className="stage">
@@ -223,6 +242,11 @@ export default function App() {
           <span className="bar-lead">
             <NetIndicator net={net} />
             <StatusDot phase={paused ? "paused" : phase} />
+            {claudeAlert && (
+              <span className="claude-alert" title={claude?.message ?? "Claude needs attention"}>
+                <KeyIcon />
+              </span>
+            )}
           </span>
           {recording ? (
             <>
@@ -250,7 +274,11 @@ export default function App() {
                   ? "Error — hover to see"
                   : net && !net.online
                     ? "No internet"
-                    : "Notch Code"}
+                    : claudeAlert
+                      ? claude?.state === "not_installed"
+                        ? "Claude isn't installed"
+                        : "Claude needs sign-in"
+                      : "Notch Code"}
             </span>
           )}
         </div>
@@ -270,6 +298,9 @@ export default function App() {
               </div>
               <div className="head-actions">
                 <NetIndicator net={net} showLatency />
+                {claude?.state === "signed_in" && (
+                  <span className="chip">Claude{claude.plan ? ` · ${capitalize(claude.plan)}` : ""}</span>
+                )}
                 {status?.backend && <span className="chip">{status.backend}</span>}
                 <IconButton title={pinned ? "Unpin" : "Keep open"} active={pinned} onClick={() => setPinned(!pinned)}>
                   <PinIcon />
@@ -282,6 +313,18 @@ export default function App() {
                 </IconButton>
               </div>
             </header>
+
+            {showClaudeBanner && claude && (
+              <ClaudeBanner claude={claude} onLater={() => setClaudeSnoozedUntil(Date.now() + CLAUDE_SNOOZE_MS)} />
+            )}
+
+            {showUpdate && update && (
+              <UpdateBanner
+                update={update}
+                recording={recording}
+                onLater={() => setUpdateSnoozedUntil(Date.now() + UPDATE_SNOOZE_MS)}
+              />
+            )}
 
             {phase === "preparing" && <Preparing status={status} />}
 
@@ -436,6 +479,81 @@ function Preparing({ status }: { status: AppStatus | null }) {
   );
 }
 
+function needsClaudeAttention(c: ClaudeStatus | null) {
+  return !!c && (c.state === "signed_out" || c.state === "not_installed" || c.state === "error");
+}
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Reminder shown when Claude has to be signed in again (or installed). */
+function ClaudeBanner({ claude, onLater }: { claude: ClaudeStatus; onLater: () => void }) {
+  const working = claude.state === "signing_in" || claude.state === "installing";
+  const canSignIn = claude.state === "signed_out" || claude.state === "error";
+  return (
+    <div className={`claude-banner ${working ? "is-working" : ""}`}>
+      {working ? <span className="mini-spinner" /> : <KeyIcon />}
+      <span className="claude-banner-text" title={claude.message ?? undefined}>
+        {claude.message ?? "Claude needs attention"}
+      </span>
+      {canSignIn && claude.suggest_window && (
+        <button className="btn btn-ghost btn-sm" onClick={() => api.claudeLogin(true)}>
+          Sign-in window
+        </button>
+      )}
+      {canSignIn && (
+        <button className="btn btn-accent btn-sm" onClick={() => api.claudeLogin(false)}>
+          Sign in
+        </button>
+      )}
+      {claude.state === "not_installed" && (
+        <button className="btn btn-accent btn-sm" onClick={() => api.claudeInstall()}>
+          Install
+        </button>
+      )}
+      {!working && (
+        <button className="btn btn-ghost btn-sm" onClick={onLater}>
+          Later
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Offers a newer build; nothing is downloaded until the user clicks Update. */
+function UpdateBanner({ update, recording, onLater }: { update: UpdateStatus; recording: boolean; onLater: () => void }) {
+  const downloading = update.state === "downloading";
+  const text = downloading
+    ? `Downloading update… ${Math.round((update.progress ?? 0) * 100)}%`
+    : update.state === "error"
+      ? `Update failed: ${update.message ?? "unknown error"}`
+      : `Update available — build ${update.available}`;
+  return (
+    <div className={`notice-banner ${update.state === "error" ? "is-error" : ""}`}>
+      {downloading ? <span className="mini-spinner" /> : <DownloadIcon />}
+      <span className="claude-banner-text" title={text}>
+        {text}
+      </span>
+      {!downloading && (
+        <>
+          <button className="btn btn-ghost btn-sm" onClick={onLater}>
+            Later
+          </button>
+          <button
+            className="btn btn-accent btn-sm"
+            disabled={recording}
+            title={recording ? "Finish the recording first" : "Download, install and restart"}
+            onClick={() => api.updateInstall().catch(() => {})}
+          >
+            {update.state === "error" ? "Try again" : "Update"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function StatusDot({ phase }: { phase: string }) {
   return <span className={`dot dot-${phase}`} />;
 }
@@ -515,6 +633,17 @@ const WifiOffIcon = () => (
   <svg {...svg} width={14} height={14}>
     <path d="M2 2l20 20M8.5 16.3a5 5 0 0 1 7 0M5 12.6a10 10 0 0 1 5.2-2.7M16.7 10.4A10 10 0 0 1 19 12.6M2 8.8a15 15 0 0 1 4.6-2.9M10.7 5a15 15 0 0 1 11.3 3.8" />
     <circle cx="12" cy="20" r="0.6" fill="currentColor" />
+  </svg>
+);
+const KeyIcon = () => (
+  <svg {...svg} width={13} height={13}>
+    <circle cx="7.5" cy="15.5" r="5.5" />
+    <path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7l-3-3" />
+  </svg>
+);
+const DownloadIcon = () => (
+  <svg {...svg} width={13} height={13}>
+    <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
   </svg>
 );
 const PowerIcon = () => (

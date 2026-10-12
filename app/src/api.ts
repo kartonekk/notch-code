@@ -50,6 +50,36 @@ export interface NetStatus {
   latency_ms: number | null;
 }
 
+export type ClaudeAuthState =
+  | "checking"
+  | "installing"
+  | "not_installed"
+  | "signed_out"
+  | "signing_in"
+  | "signed_in"
+  | "error";
+
+export interface ClaudeStatus {
+  state: ClaudeAuthState;
+  /** what to tell the user, e.g. why the check failed */
+  message: string | null;
+  /** subscription reported by the CLI ("pro", "max", …) */
+  plan: string | null;
+  /** a background sign-in didn't finish: offer the visible sign-in window */
+  suggest_window: boolean;
+}
+
+export interface UpdateStatus {
+  state: "idle" | "available" | "downloading" | "error";
+  /** build number of this exe; null for local builds (no updates) */
+  current: number | null;
+  /** build number of the newer release */
+  available: number | null;
+  /** 0..1 while downloading */
+  progress: number | null;
+  message: string | null;
+}
+
 export const api = {
   status: () => invoke<AppStatus>("get_status"),
   sources: () => invoke<AudioSource[]>("list_sources"),
@@ -64,6 +94,15 @@ export const api = {
   openTranscript: () => invoke<void>("open_transcript"),
   openFolder: () => invoke<void>("open_transcripts_folder"),
   quit: () => invoke<void>("quit_app"),
+  claudeStatus: () => invoke<ClaudeStatus>("claude_status"),
+  /** re-checks Claude's sign-in (throttled in the backend) */
+  claudeRefresh: () => invoke<void>("claude_refresh"),
+  /** `window` = show the CLI's own sign-in console instead of a background sign-in */
+  claudeLogin: (window: boolean) => invoke<void>("claude_login", { window }),
+  claudeInstall: () => invoke<void>("claude_install"),
+  updateStatus: () => invoke<UpdateStatus>("update_status"),
+  /** downloads the newer build, swaps the exe and restarts — only on the user's click */
+  updateInstall: () => invoke<void>("update_install"),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
