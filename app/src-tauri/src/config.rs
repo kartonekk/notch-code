@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
-/// User-editable settings, stored in %LOCALAPPDATA%\Transkrypt\config.json.
+/// User-editable settings, stored in %LOCALAPPDATA%\Notch Code\config.json.
 /// The file is created with defaults on first launch.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]

@@ -1,12 +1,21 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// %LOCALAPPDATA%\Transkrypt
+/// Moves a folder left by the app's former name ("Transkrypt") to its new
+/// location, so the downloaded model, settings and transcripts carry over.
+fn migrate_legacy(base: &Path, old: &str, dir: &Path) {
+    let old = base.join(old);
+    if !dir.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, dir);
+    }
+}
+
+/// %LOCALAPPDATA%\Notch Code
 pub fn data_dir() -> PathBuf {
-    let dir = dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("Transkrypt");
+    let base = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("Notch Code");
+    migrate_legacy(&base, "Transkrypt", &dir);
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -17,11 +26,11 @@ pub fn models_dir() -> PathBuf {
     dir
 }
 
-/// Documents\Transkrypty
+/// Documents\Notch Code
 pub fn transcripts_dir() -> PathBuf {
-    let dir = dirs::document_dir()
-        .unwrap_or_else(data_dir)
-        .join("Transkrypty");
+    let base = dirs::document_dir().unwrap_or_else(data_dir);
+    let dir = base.join("Notch Code");
+    migrate_legacy(&base, "Transkrypty", &dir);
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -72,7 +81,7 @@ pub fn init_whisper_logging() {
     whisper_rs::install_logging_hooks();
 }
 
-/// Appends a line to %LOCALAPPDATA%\Transkrypt\transkrypt.log (the release
+/// Appends a line to %LOCALAPPDATA%\Notch Code\notch-code.log (the release
 /// build has no console, so this is the only place diagnostics end up).
 pub fn log(msg: impl AsRef<str>) {
     let line = format!(
@@ -85,7 +94,7 @@ pub fn log(msg: impl AsRef<str>) {
     if let Ok(mut f) = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(data_dir().join("transkrypt.log"))
+        .open(data_dir().join("notch-code.log"))
     {
         let _ = f.write_all(line.as_bytes());
     }

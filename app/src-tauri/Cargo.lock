@@ -4477,7 +4477,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "transkrypt"
+name = "notch-code"
 version = "0.1.0"
 dependencies = [
  "chrono",

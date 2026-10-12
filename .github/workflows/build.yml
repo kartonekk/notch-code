@@ -79,7 +79,7 @@ jobs:
         working-directory: app
         run: npm ci
 
-      - name: Build Transkrypt.exe
+      - name: Build NotchCode.exe
         working-directory: app
         run: npm run tauri build -- --no-bundle
 
@@ -87,12 +87,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist-exe | Out-Null
-          Copy-Item C:\t\release\transkrypt.exe dist-exe\Transkrypt.exe
+          Copy-Item C:\t\release\notch-code.exe dist-exe\NotchCode.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Transkrypt-${{ github.sha }}
-          path: dist-exe/Transkrypt.exe
+          name: NotchCode-${{ github.sha }}
+          path: dist-exe/NotchCode.exe
           if-no-files-found: error
 
       # Every push to main publishes a new release (tag build-<n>), marked as latest.
@@ -102,12 +102,12 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: Transkrypt build ${{ github.run_number }}
+          name: Notch Code build ${{ github.run_number }}
           body: |
-            Automatyczny build z commita ${{ github.sha }}.
+            Automated build from commit ${{ github.sha }}.
 
-            Pobierz `Transkrypt.exe` i uruchom — przy pierwszym starcie aplikacja sama pobierze model (~550 MB).
-          files: dist-exe/Transkrypt.exe
+            Download `NotchCode.exe` and run it — on first launch the app downloads the model (~550 MB) by itself.
+          files: dist-exe/NotchCode.exe
           make_latest: true
 
       # A version tag (v1.2.3) publishes a named release with notes.
@@ -115,6 +115,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist-exe/Transkrypt.exe
+          files: dist-exe/NotchCode.exe
           generate_release_notes: true
           make_latest: true

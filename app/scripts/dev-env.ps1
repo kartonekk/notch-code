@@ -1,4 +1,4 @@
-﻿# Sets up the build environment for Transkrypt (MSVC x64 + Ninja + Vulkan SDK + libclang).
+﻿# Sets up the build environment for Notch Code (MSVC x64 + Ninja + Vulkan SDK + libclang).
 # Usage:  . .\scripts\dev-env.ps1   (dot-source it, then run npm run tauri build / cargo build)
 
 # Pick up PATH changes from installers without restarting the shell
@@ -7,7 +7,7 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [En
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-if (-not $vs) { throw 'Brak Visual Studio Build Tools z narzędziami C++ (winget install Microsoft.VisualStudio.2022.BuildTools).' }
+if (-not $vs) { throw 'Visual Studio Build Tools with C++ tools not found (winget install Microsoft.VisualStudio.2022.BuildTools).' }
 $before = @{}
 Get-ChildItem env: | ForEach-Object { $before[$_.Name] = $_.Value }
 & "$vs\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
@@ -35,4 +35,4 @@ if (-not $env:VULKAN_SDK) { throw 'Brak Vulkan SDK (winget install KhronosGroup.
 
 if (-not $env:LIBCLANG_PATH) { $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin' }
 
-Write-Host "Środowisko gotowe: MSVC ($vs), Ninja, Vulkan SDK ($env:VULKAN_SDK)"
+Write-Host "Environment ready: MSVC ($vs), Ninja, Vulkan SDK ($env:VULKAN_SDK)"

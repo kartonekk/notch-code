@@ -23,8 +23,8 @@ pub enum Speaker {
 impl Speaker {
     pub fn label(self) -> &'static str {
         match self {
-            Speaker::Me => "Ja",
-            Speaker::Others => "Rozmówcy",
+            Speaker::Me => "Me",
+            Speaker::Others => "Others",
         }
     }
 }
@@ -51,7 +51,7 @@ pub fn load_model(path: &std::path::Path, cfg: &Config) -> Result<WhisperContext
     let mut params = whisper_rs::WhisperContextParameters::default();
     params.use_gpu(cfg.use_gpu);
     WhisperContext::new_with_params(path, params)
-        .map_err(|e| format!("Nie udało się wczytać modelu: {e:?}"))
+        .map_err(|e| format!("Failed to load model: {e:?}"))
 }
 
 /// Transcribes 1 s of silence once so the first real utterance is not slow

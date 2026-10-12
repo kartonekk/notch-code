@@ -1,4 +1,4 @@
-//! Markdown transcript file in Documents\Transkrypty, appended as segments finish.
+//! Markdown transcript file in Documents\Notch Code, appended as segments finish.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -38,10 +38,10 @@ impl TranscriptFile {
             started.format("%Y-%m-%d %H-%M"),
             safe_file_name(source)
         ));
-        let file = File::create(&path).map_err(|e| format!("Nie można utworzyć pliku transkryptu: {e}"))?;
+        let file = File::create(&path).map_err(|e| format!("Cannot create transcript file: {e}"))?;
         let mut out = BufWriter::new(file);
-        writeln!(out, "# Transkrypt — {source}\n").ok();
-        writeln!(out, "Rozpoczęto: {}\n", started.format("%d.%m.%Y %H:%M")).ok();
+        writeln!(out, "# Transcript — {source}\n").ok();
+        writeln!(out, "Started: {}\n", started.format("%Y-%m-%d %H:%M")).ok();
         out.flush().ok();
         Ok(Self { path, started, out: Some(out) })
     }
@@ -58,14 +58,14 @@ impl TranscriptFile {
         self.write(&line);
     }
 
-    /// A note such as a pause, e.g. "*[00:12:03] — pauza —*".
+    /// A note such as a pause, e.g. "*[00:12:03] — paused —*".
     pub fn mark(&mut self, what: &str, at_ms: u64) {
         let line = format!("*[{}] — {what} —*\n\n", hms(at_ms));
         self.write(&line);
     }
 
     pub fn finish(&mut self) {
-        let line = format!("---\nZakończono: {}\n", Local::now().format("%d.%m.%Y %H:%M"));
+        let line = format!("---\nEnded: {}\n", Local::now().format("%Y-%m-%d %H:%M"));
         self.write(&line);
         self.out = None; // close the handle so the file can be renamed
     }
@@ -88,7 +88,7 @@ impl TranscriptFile {
 
         let content = std::fs::read_to_string(&self.path).map_err(|e| e.to_string())?;
         let body = content.split_once('\n').map(|(_, rest)| rest).unwrap_or("");
-        let content = format!("# {}\n\nŹródło: {source}\n{body}", subject.trim());
+        let content = format!("# {}\n\nSource: {source}\n{body}", subject.trim());
         std::fs::write(&target, content).map_err(|e| e.to_string())?;
         if target != self.path {
             std::fs::remove_file(&self.path).map_err(|e| e.to_string())?;

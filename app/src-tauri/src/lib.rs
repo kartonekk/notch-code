@@ -118,27 +118,27 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
 
     update_status(app, |s| {
         s.phase = Phase::Preparing;
-        s.message = "Sprawdzam model rozpoznawania mowy…".into();
+        s.message = "Checking speech recognition model…".into();
         s.progress = None;
     });
 
     let path = setup::ensure_model(&cfg.model, |done, total| {
         update_status(app, |s| {
             s.message = if total > 0 {
-                format!("Pobieranie modelu: {} / {} MB", done / 1_048_576, total / 1_048_576)
+                format!("Downloading model: {} / {} MB", done / 1_048_576, total / 1_048_576)
             } else {
-                format!("Pobieranie modelu: {} MB", done / 1_048_576)
+                format!("Downloading model: {} MB", done / 1_048_576)
             };
             s.progress = (total > 0).then(|| done as f32 / total as f32);
         });
     })?;
 
     update_status(app, |s| {
-        s.message = "Wczytuję model na kartę graficzną…".into();
+        s.message = "Loading model onto the GPU…".into();
         s.progress = None;
     });
     let ctx = transcriber::load_model(&path, &cfg)?;
-    update_status(app, |s| s.message = "Rozgrzewam silnik…".into());
+    update_status(app, |s| s.message = "Warming up the engine…".into());
     let took = transcriber::warm_up(&ctx, &cfg)?;
     let backend = if paths::GPU_ACTIVE.load(Ordering::Relaxed) {
         let name = paths::GPU_NAME.lock().unwrap().clone().unwrap_or_default();
@@ -152,15 +152,15 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
 
     update_status(app, |s| {
         s.phase = Phase::Ready;
-        s.message = "Gotowy".into();
+        s.message = "Ready".into();
         s.progress = None;
         s.backend = Some(backend);
     });
 
-    // Debug builds: TRANSKRYPT_AUTOSTART=<exe name fragment> starts recording
+    // Debug builds: NOTCH_CODE_AUTOSTART=<exe name fragment> starts recording
     // that app right away, for end-to-end tests without clicking.
     #[cfg(debug_assertions)]
-    if let Ok(want) = std::env::var("TRANSKRYPT_AUTOSTART") {
+    if let Ok(want) = std::env::var("NOTCH_CODE_AUTOSTART") {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             for _ in 0..60 {
@@ -208,15 +208,15 @@ async fn list_sources() -> Result<Vec<AudioSource>, String> {
 async fn start_recording(app: AppHandle, pid: u32, include_mic: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
     if state.session.lock().unwrap().is_some() {
-        return Err("Nagrywanie już trwa".into());
+        return Err("Already recording".into());
     }
-    let model = state.model.lock().unwrap().clone().ok_or("Model nie jest jeszcze gotowy")?;
+    let model = state.model.lock().unwrap().clone().ok_or("Model is not ready yet")?;
     let cfg = state.config.lock().unwrap().clone();
 
     let source_name = audio::list_sources()
         .ok()
         .and_then(|l| l.into_iter().find(|s| s.pid == pid).map(|s| s.name))
-        .unwrap_or_else(|| "Aplikacja".into());
+        .unwrap_or_else(|| "App".into());
 
     let file = TranscriptFile::create(&source_name)?;
     let path = file.path.to_string_lossy().to_string();
@@ -292,7 +292,7 @@ async fn start_recording(app: AppHandle, pid: u32, include_mic: bool) -> Result<
     });
     update_status(&app, |s| {
         s.phase = Phase::Recording;
-        s.message = "Nagrywanie".into();
+        s.message = "Recording".into();
         s.source = Some(source_name);
         s.started_at = Some(now_unix_ms());
         s.transcript_path = Some(path);
@@ -307,16 +307,16 @@ fn pause_recording(app: AppHandle, paused: bool) -> Result<(), String> {
     {
         let state = app.state::<AppState>();
         let session = state.session.lock().unwrap();
-        let s = session.as_ref().ok_or("Nagrywanie nie trwa")?;
+        let s = session.as_ref().ok_or("Not recording")?;
         if s.paused.swap(paused, Ordering::SeqCst) == paused {
             return Ok(());
         }
         let at = s.started.elapsed().as_millis() as u64;
-        s.file.lock().unwrap().mark(if paused { "pauza" } else { "wznowiono" }, at);
+        s.file.lock().unwrap().mark(if paused { "paused" } else { "resumed" }, at);
     }
     update_status(&app, |s| {
         s.paused = paused;
-        s.message = if paused { "Wstrzymano" } else { "Nagrywanie" }.into();
+        s.message = if paused { "Paused" } else { "Recording" }.into();
     });
     Ok(())
 }
@@ -327,7 +327,7 @@ fn pause_recording(app: AppHandle, paused: bool) -> Result<(), String> {
 async fn stop_recording(app: AppHandle, title: Option<String>) -> Result<Option<String>, String> {
     let session = app.state::<AppState>().session.lock().unwrap().take();
     let Some(session) = session else { return Ok(None) };
-    update_status(&app, |s| s.message = "Kończę transkrypcję…".into());
+    update_status(&app, |s| s.message = "Finishing transcription…".into());
 
     session.stop.store(true, Ordering::SeqCst);
     for h in session.captures {
@@ -355,7 +355,7 @@ async fn stop_recording(app: AppHandle, title: Option<String>) -> Result<Option<
 
     update_status(&app, |s| {
         s.phase = Phase::Ready;
-        s.message = "Gotowy".into();
+        s.message = "Ready".into();
         s.started_at = None;
         s.source = None;
         s.paused = false;
@@ -421,7 +421,7 @@ fn place_window(window: &WebviewWindow) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| paths::log(format!("PANIC: {info}"))));
-    paths::log("Transkrypt starting");
+    paths::log("Notch Code starting");
     paths::init_whisper_logging();
 
     tauri::Builder::default()
@@ -448,12 +448,12 @@ pub fn run() {
             window.show()?;
             hover::spawn(window.clone());
 
-            let open_item = MenuItem::with_id(app, "folder", "Folder z transkryptami", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Zakończ", true, None::<&str>)?;
+            let open_item = MenuItem::with_id(app, "folder", "Transcripts folder", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().cloned().expect("icon"))
-                .tooltip("Transkrypt")
+                .tooltip("Notch Code")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "folder" => {

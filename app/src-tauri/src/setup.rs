@@ -13,7 +13,7 @@ const MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resol
 /// `progress(downloaded, total)` is called a few times per second.
 pub fn ensure_model(model: &str, mut progress: impl FnMut(u64, u64)) -> Result<PathBuf, String> {
     if model.contains(['/', '\\']) || !model.ends_with(".bin") {
-        return Err(format!("Nieprawidłowa nazwa modelu w config.json: {model}"));
+        return Err(format!("Invalid model name in config.json: {model}"));
     }
     let path = paths::models_dir().join(model);
     if path.exists() && is_ggml(&path) {
@@ -26,7 +26,7 @@ pub fn ensure_model(model: &str, mut progress: impl FnMut(u64, u64)) -> Result<P
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(20))
         .timeout(None)
-        .user_agent("Transkrypt/0.1")
+        .user_agent("NotchCode/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -39,13 +39,13 @@ pub fn ensure_model(model: &str, mut progress: impl FnMut(u64, u64)) -> Result<P
                 paths::log(format!("download attempt {attempts} failed: {e}; retrying"));
                 std::thread::sleep(Duration::from_secs(2 * attempts));
             }
-            Err(e) => return Err(format!("Nie udało się pobrać modelu: {e}")),
+            Err(e) => return Err(format!("Failed to download model: {e}")),
         }
     }
 
     if !is_ggml(&part) {
         let _ = std::fs::remove_file(&part);
-        return Err("Pobrany plik modelu jest uszkodzony".into());
+        return Err("Downloaded model file is corrupted".into());
     }
     std::fs::rename(&part, &path).map_err(|e| e.to_string())?;
     paths::log("model downloaded");
@@ -99,7 +99,7 @@ fn download(
     file.flush().map_err(|e| e.to_string())?;
     progress(done, total);
     if total > 0 && done < total {
-        return Err("połączenie przerwane".into());
+        return Err("connection interrupted".into());
     }
     Ok(())
 }

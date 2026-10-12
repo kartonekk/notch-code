@@ -73,7 +73,7 @@ pub fn with_mta<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send 
         f()
     })
     .join()
-    .map_err(|_| "wątek audio uległ awarii".to_string())?
+    .map_err(|_| "audio thread crashed".to_string())?
 }
 
 pub fn list_sources() -> Result<Vec<AudioSource>, String> {
@@ -206,7 +206,7 @@ pub fn spawn_capture(ctx: CaptureCtx) -> Result<std::thread::JoinHandle<()>, Str
     match ready_rx.recv() {
         Ok(Ok(())) => Ok(handle),
         Ok(Err(e)) => Err(e),
-        Err(_) => Err("nie udało się uruchomić nagrywania".into()),
+        Err(_) => Err("failed to start recording".into()),
     }
 }
 
@@ -216,18 +216,18 @@ fn capture_loop(ctx: &CaptureCtx, ready: &std::sync::mpsc::Sender<Result<(), Str
     let format = WaveFormat::new(32, 32, &SampleType::Float, 48_000, 2, None);
     let mut client = match ctx.input {
         Input::App(pid) => AudioClient::new_application_loopback_client(pid, true)
-            .map_err(|e| format!("Nie można przechwycić dźwięku aplikacji: {e}"))?,
+            .map_err(|e| format!("Cannot capture app audio: {e}"))?,
         Input::Mic => {
             let dev = DeviceEnumerator::new()
                 .and_then(|en| en.get_default_device(&Direction::Capture))
-                .map_err(|e| format!("Brak mikrofonu: {e}"))?;
-            dev.get_iaudioclient().map_err(|e| format!("Mikrofon: {e}"))?
+                .map_err(|e| format!("No microphone: {e}"))?;
+            dev.get_iaudioclient().map_err(|e| format!("Microphone: {e}"))?
         }
     };
     let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 200_000 };
     client
         .initialize_client(&format, &Direction::Capture, &mode)
-        .map_err(|e| format!("Inicjalizacja audio: {e}"))?;
+        .map_err(|e| format!("Audio initialization: {e}"))?;
     let event = client.set_get_eventhandle().map_err(|e| e.to_string())?;
     let capture = client.get_audiocaptureclient().map_err(|e| e.to_string())?;
     client.start_stream().map_err(|e| e.to_string())?;

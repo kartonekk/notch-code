@@ -10,7 +10,7 @@ const COLLAPSED_LIVE = { w: 460, h: 36 };
 const EXPANDED = { w: 580, h: 420 };
 const ANIM_MS = 260;
 
-const SPEAKER_LABEL = { me: "Ja", others: "Rozmówcy" } as const;
+const SPEAKER_LABEL = { me: "Me", others: "Others" } as const;
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -24,7 +24,7 @@ export default function App() {
   const [net, setNet] = useState<NetStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  /** "Zakończ" was clicked: asking for the meeting subject (file name) */
+  /** "End" was clicked: asking for the meeting subject (file name) */
   const [ending, setEnding] = useState(false);
   const [subject, setSubject] = useState("");
   const [busy, setBusy] = useState(false);
@@ -229,13 +229,13 @@ export default function App() {
               <span className={`timer ${paused ? "is-paused" : ""}`}>{elapsed}</span>
               <span className="ticker">
                 {paused ? (
-                  <span className="muted">Wstrzymano — najedź, aby wznowić</span>
+                  <span className="muted">Paused — hover to resume</span>
                 ) : lastLine ? (
                   <>
                     <b>{SPEAKER_LABEL[lastLine.speaker]}:</b> {lastLine.text}
                   </>
                 ) : (
-                  <span className="muted">Słucham…</span>
+                  <span className="muted">Listening…</span>
                 )}
               </span>
               <Bars level={paused ? 0 : Math.max(levels.app, levels.mic)} />
@@ -244,13 +244,13 @@ export default function App() {
             <span className="bar-label">
               {phase === "preparing"
                 ? status?.progress != null
-                  ? `Pobieranie modelu ${Math.round(status.progress * 100)}%`
-                  : "Przygotowanie…"
+                  ? `Downloading model ${Math.round(status.progress * 100)}%`
+                  : "Preparing…"
                 : phase === "error"
-                  ? "Błąd — najedź, aby zobaczyć"
+                  ? "Error — hover to see"
                   : net && !net.online
-                    ? "Brak internetu"
-                    : "Transkrypt"}
+                    ? "No internet"
+                    : "Notch Code"}
             </span>
           )}
         </div>
@@ -262,22 +262,22 @@ export default function App() {
               <div className="title">
                 {recording ? (
                   <>
-                    {paused ? "Wstrzymano" : "Nagrywanie"} <span className="muted">· {status?.source}</span>
+                    {paused ? "Paused" : "Recording"} <span className="muted">· {status?.source}</span>
                   </>
                 ) : (
-                  "Transkrypt"
+                  "Notch Code"
                 )}
               </div>
               <div className="head-actions">
                 <NetIndicator net={net} showLatency />
                 {status?.backend && <span className="chip">{status.backend}</span>}
-                <IconButton title={pinned ? "Odepnij" : "Przypnij otwarty"} active={pinned} onClick={() => setPinned(!pinned)}>
+                <IconButton title={pinned ? "Unpin" : "Keep open"} active={pinned} onClick={() => setPinned(!pinned)}>
                   <PinIcon />
                 </IconButton>
-                <IconButton title="Folder z transkryptami" onClick={() => api.openFolder()}>
+                <IconButton title="Transcripts folder" onClick={() => api.openFolder()}>
                   <FolderIcon />
                 </IconButton>
-                <IconButton title="Zamknij aplikację" onClick={() => api.quit()}>
+                <IconButton title="Quit" onClick={() => api.quit()}>
                   <PowerIcon />
                 </IconButton>
               </div>
@@ -289,20 +289,20 @@ export default function App() {
               <div className="center-box">
                 <p className="error-text">{status?.message}</p>
                 <button className="btn" onClick={() => api.retrySetup()}>
-                  Spróbuj ponownie
+                  Try again
                 </button>
               </div>
             )}
 
             {phase === "ready" && (
               <div className="picker">
-                <div className="section-label">Z której aplikacji nagrywać dźwięk?</div>
+                <div className="section-label">Which app should audio be recorded from?</div>
                 <div className="source-list">
                   {sources.length === 0 && (
                     <div className="empty">
-                      Brak aplikacji odtwarzających dźwięk.
+                      No apps are playing audio.
                       <br />
-                      Dołącz do spotkania Webex — pojawi się tutaj.
+                      Join a Webex meeting — it will show up here.
                     </div>
                   )}
                   {sources.map((s) => (
@@ -313,7 +313,7 @@ export default function App() {
                     >
                       <span className="source-name">
                         {s.name}
-                        {s.suggested && <span className="chip chip-accent">spotkanie</span>}
+                        {s.suggested && <span className="chip chip-accent">meeting</span>}
                       </span>
                       <span className="source-exe">{s.exe}</span>
                       <Meter level={s.peak} />
@@ -323,11 +323,11 @@ export default function App() {
                 <label className="toggle">
                   <input type="checkbox" checked={includeMic} onChange={(e) => setIncludeMic(e.target.checked)} />
                   <span className="switch" />
-                  Nagrywaj też mój mikrofon (podpis „Ja”)
+                  Also record my microphone (labelled “Me”)
                 </label>
                 {error && <p className="error-text">{error}</p>}
                 <button className="btn btn-record" disabled={selectedPid === null} onClick={start}>
-                  <span className="rec-dot" /> Rozpocznij transkrypcję
+                  <span className="rec-dot" /> Start transcribing
                 </button>
               </div>
             )}
@@ -344,7 +344,7 @@ export default function App() {
                     setScrolledUp(!atBottom);
                   }}
                 >
-                  {segments.length === 0 && <div className="empty">Czekam na mowę…</div>}
+                  {segments.length === 0 && <div className="empty">Waiting for speech…</div>}
                   {segments.map((s) => (
                     <div key={s.id} className={`line speaker-${s.speaker} ${s.final ? "" : "is-partial"}`}>
                       <span className="ts">{formatDuration(s.start_ms)}</span>
@@ -355,7 +355,7 @@ export default function App() {
                 </div>
                 {scrolledUp && !ending && (
                   <button className="jump-latest" onClick={scrollToBottom}>
-                    ↓ Najnowsze
+                    ↓ Latest
                   </button>
                 )}
                 {ending ? (
@@ -369,7 +369,7 @@ export default function App() {
                     <input
                       className="subject-input"
                       autoFocus
-                      placeholder="Temat spotkania (nazwa pliku) — opcjonalnie"
+                      placeholder="Meeting topic (file name) — optional"
                       value={subject}
                       maxLength={80}
                       disabled={busy}
@@ -377,33 +377,33 @@ export default function App() {
                       onKeyDown={(e) => e.key === "Escape" && setEnding(false)}
                     />
                     <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEnding(false)}>
-                      Anuluj
+                      Cancel
                     </button>
                     <button type="submit" className="btn btn-stop" disabled={busy}>
-                      {busy ? "Zapisuję…" : "Zakończ i zapisz"}
+                      {busy ? "Saving…" : "End and save"}
                     </button>
                   </form>
                 ) : (
                   <footer className="live-foot">
                     <div className="levels">
-                      <span>Aplikacja</span>
+                      <span>App</span>
                       <Meter level={paused ? 0 : levels.app} />
                       {includeMic && (
                         <>
-                          <span>Mikrofon</span>
+                          <span>Microphone</span>
                           <Meter level={paused ? 0 : levels.mic} />
                         </>
                       )}
                     </div>
-                    <span className={`timer big ${paused ? "is-paused" : ""}`}>{paused ? "Pauza" : elapsed}</span>
-                    <button className="btn btn-ghost" title="Otwórz plik transkryptu" onClick={() => api.openTranscript()}>
-                      Plik
+                    <span className={`timer big ${paused ? "is-paused" : ""}`}>{paused ? "Paused" : elapsed}</span>
+                    <button className="btn btn-ghost" title="Open transcript file" onClick={() => api.openTranscript()}>
+                      File
                     </button>
                     <button className="btn" onClick={togglePause}>
-                      {paused ? <PlayIcon /> : <PauseIcon />} {paused ? "Wznów" : "Pauza"}
+                      {paused ? <PlayIcon /> : <PauseIcon />} {paused ? "Resume" : "Pause"}
                     </button>
                     <button className="btn btn-stop" onClick={() => setEnding(true)}>
-                      <span className="stop-sq" /> Zakończ
+                      <span className="stop-sq" /> End
                     </button>
                   </footer>
                 )}
@@ -425,13 +425,13 @@ function Preparing({ status }: { status: AppStatus | null }) {
   return (
     <div className="center-box">
       <div className="spinner" />
-      <p>{status?.message ?? "Przygotowanie…"}</p>
+      <p>{status?.message ?? "Preparing…"}</p>
       {p != null && (
         <div className="progress">
           <div className="progress-fill" style={{ width: `${Math.round(p * 100)}%` }} />
         </div>
       )}
-      <p className="muted small">Pierwsze uruchomienie pobiera model rozpoznawania mowy (jednorazowo).</p>
+      <p className="muted small">The first launch downloads the speech recognition model (one time only).</p>
     </div>
   );
 }
@@ -443,10 +443,10 @@ function StatusDot({ phase }: { phase: string }) {
 function NetIndicator({ net, showLatency }: { net: NetStatus | null; showLatency?: boolean }) {
   const state = !net ? "unknown" : !net.online ? "offline" : (net.latency_ms ?? 0) > 300 ? "slow" : "online";
   const title = !net
-    ? "Sprawdzam połączenie…"
+    ? "Checking connection…"
     : net.online
       ? `Internet: ${net.latency_ms} ms`
-      : "Brak połączenia z internetem";
+      : "No internet connection";
   return (
     <span className={`net net-${state}`} title={title}>
       {state === "offline" ? <WifiOffIcon /> : <WifiIcon />}

@@ -1,4 +1,4 @@
-# Builds the standalone transkrypt.exe and copies it to <repo>\release.
+# Builds the standalone notch-code.exe and copies it to <repo>\release.
 # Usage:  powershell -ExecutionPolicy Bypass -File .\app\scripts\build-release.ps1
 
 . "$PSScriptRoot\dev-env.ps1"
@@ -17,5 +17,5 @@ try {
 }
 
 New-Item -ItemType Directory -Force $out | Out-Null
-Copy-Item "$env:CARGO_TARGET_DIR\release\transkrypt.exe" (Join-Path $out 'Transkrypt.exe') -Force
+Copy-Item "$env:CARGO_TARGET_DIR\release\notch-code.exe" (Join-Path $out 'NotchCode.exe') -Force
 Get-ChildItem $out | ForEach-Object { '{0}  {1:N1} MB' -f $_.FullName, ($_.Length / 1MB) }
