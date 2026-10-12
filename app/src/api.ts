@@ -77,22 +77,28 @@ export interface UpdateStatus {
 /** "reckless" = no permission checks, and changes are kept without review */
 export type AgentMode = "auto" | "plan" | "acceptEdits" | "reckless";
 
-export interface AgentStatus {
-  running: boolean;
+/** One Claude conversation in one folder; several can work at once. */
+export interface SessionStatus {
+  id: number;
   /** folder Claude works in */
-  project: string | null;
-  /** recently used folders, newest first */
-  recent: string[];
+  project: string;
+  running: boolean;
   /** a conversation is going on (the next message continues it) */
   has_session: boolean;
   /** the step in progress, for the collapsed bar */
   current: string | null;
   /** unix ms when the running message was sent */
   started_at: number | null;
-  /** the 5-hour usage window, as last reported by Claude */
-  limit: Limit | null;
   /** model of the last run, as Claude reported it */
   model: string | null;
+}
+
+export interface AgentStatus {
+  sessions: SessionStatus[];
+  /** recently used folders, newest first */
+  recent: string[];
+  /** the 5-hour usage window, as last reported by Claude */
+  limit: Limit | null;
 }
 
 export interface Limit {
@@ -111,12 +117,14 @@ export interface Denied {
   rule: string;
 }
 
-export type AgentEvent =
+/** `sid` = the session it belongs to */
+export type AgentEvent = { sid: number } & (
   | { kind: "start"; run: number; prompt: string }
   | { kind: "text"; run: number; text: string }
   | { kind: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null }
   | { kind: "step_done"; run: number; id: string; ok: boolean; output: string | null }
-  | { kind: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[] };
+  | { kind: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[] }
+);
 
 export interface FileChange {
   path: string;
@@ -127,8 +135,8 @@ export interface FileChange {
 }
 
 export interface ReviewStatus {
-  /** Claude's changes waiting for accept / reject */
-  files: FileChange[];
+  /** project folder -> Claude's changes there, waiting for accept / reject */
+  projects: Record<string, FileChange[]>;
   /** live diff: changed files open in VS Code as they change */
   live: boolean;
   /** VS Code was found */
@@ -159,24 +167,28 @@ export const api = {
   /** downloads the newer build, swaps the exe and restarts — only on the user's click */
   updateInstall: () => invoke<void>("update_install"),
   agentStatus: () => invoke<AgentStatus>("agent_status"),
+  /** new session in `path`; returns its id */
+  agentOpen: (path: string) => invoke<number>("agent_open", { path }),
+  agentClose: (sid: number) => invoke<void>("agent_close", { sid }),
   /** `allow` = extra --allowedTools rules (after the user allowed a denied step) */
   /** `model` = alias ("opus", "sonnet", …) or full name; null = Claude Code's default */
-  agentSend: (prompt: string, mode: AgentMode, allow: string[] = [], model: string | null = null) =>
-    invoke<void>("agent_send", { prompt, mode, allow, model }),
-  agentStop: () => invoke<void>("agent_stop"),
+  agentSend: (sid: number, prompt: string, mode: AgentMode, allow: string[] = [], model: string | null = null) =>
+    invoke<void>("agent_send", { sid, prompt, mode, allow, model }),
+  agentStop: (sid: number) => invoke<void>("agent_stop", { sid }),
   /** forget the conversation; the next message starts a new one */
-  agentNew: () => invoke<void>("agent_new"),
-  agentSetProject: (path: string) => invoke<void>("agent_set_project", { path }),
-  /** system folder picker; the chosen folder becomes the project */
-  agentPickProject: () => invoke<string | null>("agent_pick_project"),
-  agentOpenProject: () => invoke<void>("agent_open_project"),
+  agentNew: (sid: number) => invoke<void>("agent_new", { sid }),
+  /** move an idle session to another folder */
+  agentSetProject: (sid: number, path: string) => invoke<void>("agent_set_project", { sid, path }),
+  /** system folder picker */
+  agentPickFolder: (current: string | null) => invoke<string | null>("agent_pick_folder", { current }),
+  agentOpenFolder: (path: string) => invoke<void>("agent_open_folder", { path }),
   reviewStatus: () => invoke<ReviewStatus>("review_status"),
   /** keep Claude's changes (one file, or all when `path` is omitted) */
-  reviewAccept: (path?: string) => invoke<void>("review_accept", { path: path ?? null }),
+  reviewAccept: (project: string, path?: string) => invoke<void>("review_accept", { project, path: path ?? null }),
   /** restore the originals (one file, or all when `path` is omitted) */
-  reviewReject: (path?: string) => invoke<void>("review_reject", { path: path ?? null }),
+  reviewReject: (project: string, path?: string) => invoke<void>("review_reject", { project, path: path ?? null }),
   /** original ↔ current in VS Code */
-  reviewDiff: (path: string) => invoke<void>("review_diff", { path }),
+  reviewDiff: (project: string, path: string) => invoke<void>("review_diff", { project, path }),
   reviewSetLive: (live: boolean) => invoke<void>("review_set_live", { live }),
 };
 

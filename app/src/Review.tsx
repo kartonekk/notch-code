@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api, FileChange, on, ReviewStatus } from "./api";
-import { CheckIcon, ChevronIcon, StepGlyph } from "./ui";
+import { basename, CheckIcon, StepGlyph } from "./ui";
 
 export function useReview() {
-  const [review, setReview] = useState<ReviewStatus>({ files: [], live: false, vscode: false });
+  const [review, setReview] = useState<ReviewStatus>({ projects: {}, live: false, vscode: false });
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     api.reviewStatus().then(setReview).catch(() => {});
@@ -16,21 +16,36 @@ export function useReview() {
     setError(null);
     p.catch((e) => setError(String(e)));
   };
-  const added = review.files.reduce((n, f) => n + f.added, 0);
-  const removed = review.files.reduce((n, f) => n + f.removed, 0);
-  return {
-    ...review,
-    added,
-    removed,
-    error,
-    accept: (path?: string) => call(api.reviewAccept(path)),
-    reject: (path?: string) => call(api.reviewReject(path)),
-    diff: (path: string) => call(api.reviewDiff(path)),
-    setLive: (live: boolean) => call(api.reviewSetLive(live)),
+  const forProject = (project: string): ProjectReview => {
+    const files = review.projects[project] ?? [];
+    return {
+      project,
+      files,
+      added: files.reduce((n, f) => n + f.added, 0),
+      removed: files.reduce((n, f) => n + f.removed, 0),
+      vscode: review.vscode,
+      accept: (path?: string) => call(api.reviewAccept(project, path)),
+      reject: (path?: string) => call(api.reviewReject(project, path)),
+      diffAll: () => files.forEach((f) => call(api.reviewDiff(project, f.path))),
+    };
   };
+  /** projects with changes waiting for a decision */
+  const pending = Object.keys(review.projects).filter((p) => review.projects[p].length > 0);
+  return { ...review, error, forProject, pending };
 }
 
 export type ReviewState = ReturnType<typeof useReview>;
+
+export interface ProjectReview {
+  project: string;
+  files: FileChange[];
+  added: number;
+  removed: number;
+  vscode: boolean;
+  accept: (path?: string) => void;
+  reject: (path?: string) => void;
+  diffAll: () => void;
+}
 
 /** A destructive button that needs a second click within 3 s. */
 function ConfirmButton({ className, label, confirm, title, onConfirm }: { className: string; label: string; confirm: string; title: string; onConfirm: () => void }) {
@@ -57,7 +72,7 @@ function ConfirmButton({ className, label, confirm, title, onConfirm }: { classN
   );
 }
 
-function Counts({ added, removed }: { added: number; removed: number }) {
+export function Counts({ added, removed }: { added: number; removed: number }) {
   return (
     <span className="counts">
       <span className="plus">+{added}</span> <span className="minus">−{removed}</span>
@@ -65,105 +80,59 @@ function Counts({ added, removed }: { added: number; removed: number }) {
   );
 }
 
-const STATUS_LETTER: Record<FileChange["status"], string> = { modified: "M", created: "A", deleted: "D" };
+/** pixels each notification takes under the notch */
+export const PILL_STEP = 42;
+/** widest a notification gets when it opens sideways */
+export const PILL_WIDTH = 460;
 
-/** "3 files changed" strip in the Code tab, with the file list, live diff and accept / reject. */
-export function ChangesBar({ review, disabled }: { review: ReviewState; disabled: boolean }) {
-  const [open, setOpen] = useState(false);
-  const n = review.files.length;
-  if (n === 0) return null;
+/**
+ * Changes waiting for a decision, as notifications stacked under the collapsed
+ * notch (one per project). Hovering one slides it open sideways: Reject on the
+ * left, Diff and Accept on the right.
+ */
+export function ReviewPills({ review, busy, onHover }: { review: ReviewState; busy: (project: string) => boolean; onHover: (over: boolean) => void }) {
+  const many = review.pending.length > 1;
   return (
-    <div className={`changes ${open ? "is-open" : ""}`}>
-      <div className="changes-head">
-        <button className="changes-toggle" onClick={() => setOpen(!open)}>
-          <StepGlyph icon="edit" />
-          <span>
-            {n} file{n === 1 ? "" : "s"} changed
-          </span>
-          <Counts added={review.added} removed={review.removed} />
-          <ChevronIcon open={open} />
-        </button>
-        <button
-          className={`live-toggle ${review.live ? "is-on" : ""}`}
-          disabled={!review.vscode}
-          title={review.vscode ? "Live diff: open each changed file in VS Code and follow it as Claude edits" : "VS Code not found"}
-          onClick={() => review.setLive(!review.live)}
-        >
-          <span className="live-dot" /> Live diff
-        </button>
+    <div className="pills" onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} onClick={(e) => e.stopPropagation()}>
+      {review.pending.slice(0, 3).map((p, i) => (
+        <ReviewPill key={p} r={review.forProject(p)} showProject={many} busy={busy(p)} index={i} />
+      ))}
+    </div>
+  );
+}
+
+function ReviewPill({ r, showProject, busy, index }: { r: ProjectReview; showProject: boolean; busy: boolean; index: number }) {
+  const n = r.files.length;
+  return (
+    <div className="pill" style={{ top: index * PILL_STEP, animationDelay: `${index * 60}ms` }} title={r.files.map((f) => f.name).join("\n")}>
+      <span className="pill-side pill-left">
         <ConfirmButton
-          className="btn btn-ghost btn-sm reject"
-          label="Reject all"
+          className="pill-btn reject"
+          label="Reject"
           confirm="Undo all?"
           title="Put every file back the way it was"
-          onConfirm={() => !disabled && review.reject()}
+          onConfirm={() => !busy && r.reject()}
         />
-        <button className="btn btn-accent btn-sm" onClick={() => review.accept()}>
-          Accept all
+      </span>
+      <span className="pill-summary">
+        <StepGlyph icon="edit" />
+        {showProject && <b className="pill-project">{basename(r.project)}</b>}
+        <span>
+          {n} file{n === 1 ? "" : "s"}
+        </span>
+        <Counts added={r.added} removed={r.removed} />
+      </span>
+      <span className="pill-side pill-right">
+        {r.vscode && (
+          <button className="pill-btn diff" title="Open every change side by side in VS Code" onClick={r.diffAll}>
+            Diff
+          </button>
+        )}
+        <button className="pill-btn accept" title="Keep all changes" onClick={() => r.accept()}>
+          <CheckIcon /> Accept
         </button>
-      </div>
-      {open && (
-        <div className="changes-list">
-          {review.files.map((f) => (
-            <div key={f.path} className="change">
-              <span className={`change-status is-${f.status}`}>{STATUS_LETTER[f.status]}</span>
-              <span className="change-name" title={f.path}>
-                {f.name}
-              </span>
-              <Counts added={f.added} removed={f.removed} />
-              {review.vscode && (
-                <button className="mini-btn" title="Show the diff in VS Code" onClick={() => review.diff(f.path)}>
-                  Diff
-                </button>
-              )}
-              <ConfirmButton
-                className="mini-btn reject"
-                label="Reject"
-                confirm="Undo?"
-                title="Put this file back the way it was"
-                onConfirm={() => !disabled && review.reject(f.path)}
-              />
-              <button className="mini-btn accept" title="Keep this change" onClick={() => review.accept(f.path)}>
-                <CheckIcon />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {review.error && <p className="error-text">{review.error}</p>}
+      </span>
     </div>
   );
 }
 
-/** Drops below the collapsed notch while changes wait for a decision. */
-export function ReviewPill({
-  review,
-  onOpen,
-  onHover,
-}: {
-  review: ReviewState;
-  onOpen: () => void;
-  onHover: (over: boolean) => void;
-}) {
-  const n = review.files.length;
-  return (
-    <div
-      className="review-pill"
-      onPointerEnter={() => onHover(true)}
-      onPointerLeave={() => onHover(false)}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <button className="pill-summary" title="Review the changes" onClick={onOpen}>
-        <StepGlyph icon="edit" />
-        <span>
-          {n} file{n === 1 ? "" : "s"} changed
-        </span>
-        <Counts added={review.added} removed={review.removed} />
-      </button>
-      <ConfirmButton className="pill-btn reject" label="Reject" confirm="Undo all?" title="Put every file back the way it was" onConfirm={() => review.reject()} />
-      <button className="pill-btn accept" title="Keep all changes" onClick={() => review.accept()}>
-        <CheckIcon /> Accept
-      </button>
-    </div>
-  );
-}

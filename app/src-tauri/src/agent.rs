@@ -2,6 +2,8 @@
 //! (`claude -p --output-format stream-json`) and turns its event stream into
 //! simple steps for the notch ("Editing App.tsx", "Running npm test", …).
 //!
+//! Several sessions can be open at once, each with its own folder and
+//! conversation, and they can all work at the same time.
 //! One process per message; `--resume <session>` continues the conversation.
 //! Nothing ever waits for a permission prompt (`--permission-prompts none`):
 //! what the chosen mode doesn't allow is denied and shown to the user, who can
@@ -11,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -25,6 +27,7 @@ use crate::config::Config;
 use crate::{claude, paths, review};
 
 const MAX_RECENT: usize = 8;
+const MAX_SESSIONS: usize = 9;
 const MAX_OUTPUT: usize = 1500;
 /// "reckless" = no permission checks at all, and changes are kept without review.
 const MODES: [&str; 4] = ["auto", "plan", "acceptEdits", "reckless"];
@@ -32,24 +35,33 @@ const MODES: [&str; 4] = ["auto", "plan", "acceptEdits", "reckless"];
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// One Claude conversation in one folder.
 #[derive(Clone, Debug, Serialize, Default)]
-pub struct AgentStatus {
-    pub running: bool,
+pub struct SessionStatus {
+    pub id: u64,
     /// Folder Claude works in.
-    pub project: Option<String>,
-    /// Recently used folders, newest first.
-    pub recent: Vec<String>,
+    pub project: String,
+    pub running: bool,
     /// A conversation is going on (the next message continues it).
     pub has_session: bool,
     /// The step in progress, for the collapsed bar.
     pub current: Option<String>,
     /// Unix ms when the running message was sent.
     pub started_at: Option<u64>,
-    /// The 5-hour usage window, as last reported by Claude.
-    pub limit: Option<Limit>,
     /// Model of the last run, as Claude reported it.
     pub model: Option<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct AgentStatus {
+    /// Open sessions, in the order they were opened.
+    pub sessions: Vec<SessionStatus>,
+    /// Recently used folders, newest first.
+    pub recent: Vec<String>,
+    /// The 5-hour usage window, as last reported by Claude.
+    pub limit: Option<Limit>,
+}
+
 
 /// Claude subscription usage window (from `rate_limit_event`).
 #[derive(Clone, Debug, Serialize)]
@@ -97,12 +109,25 @@ pub enum AgentEvent {
     Done { run: u64, ok: bool, stopped: bool, message: Option<String>, duration_ms: u64, denied: Vec<Denied> },
 }
 
+struct Session {
+    status: SessionStatus,
+    /// Claude Code's session id, for --resume.
+    claude: Option<String>,
+    pid: Option<u32>,
+    stopping: bool,
+}
+
+#[derive(Default)]
+struct Inner {
+    sessions: Vec<Session>,
+    recent: Vec<String>,
+    limit: Option<Limit>,
+    next_id: u64,
+}
+
 #[derive(Default)]
 pub struct Agent {
-    status: Mutex<AgentStatus>,
-    session: Mutex<Option<String>>,
-    pid: Mutex<Option<u32>>,
-    stopping: AtomicBool,
+    inner: Mutex<Inner>,
     runs: AtomicU64,
 }
 
@@ -113,33 +138,111 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn update(app: &AppHandle, f: impl FnOnce(&mut AgentStatus)) {
-    let snapshot = {
+fn snapshot(inner: &Inner) -> AgentStatus {
+    AgentStatus {
+        sessions: inner
+            .sessions
+            .iter()
+            .map(|s| SessionStatus { has_session: s.claude.is_some(), ..s.status.clone() })
+            .collect(),
+        recent: inner.recent.clone(),
+        limit: inner.limit.clone(),
+    }
+}
+
+/// Changes the state and tells the UI.
+fn update(app: &AppHandle, f: impl FnOnce(&mut Inner)) {
+    let snap = {
         let agent = app.state::<Agent>();
-        let mut s = agent.status.lock().unwrap();
-        f(&mut s);
-        s.has_session = agent.session.lock().unwrap().is_some();
-        s.clone()
+        let mut inner = agent.inner.lock().unwrap();
+        f(&mut inner);
+        snapshot(&inner)
     };
-    let _ = app.emit("agent-status", snapshot);
+    let _ = app.emit("agent-status", snap);
 }
 
-fn emit(app: &AppHandle, event: AgentEvent) {
-    let _ = app.emit("agent", event);
+/// Reads or changes one session without telling the UI; None when it's gone.
+fn with_session<T>(app: &AppHandle, sid: u64, f: impl FnOnce(&mut Session) -> T) -> Option<T> {
+    let agent = app.state::<Agent>();
+    let mut inner = agent.inner.lock().unwrap();
+    inner.sessions.iter_mut().find(|s| s.status.id == sid).map(f)
 }
 
-/// Restores the project folder and the recent list from config.json.
-pub fn init(app: &AppHandle, cfg: &Config) {
-    let project = cfg.project.clone().filter(|p| Path::new(p).is_dir());
-    review::set_project(app, project.clone());
-    update(app, |s| {
-        s.project = project;
-        s.recent = cfg.recent_projects.clone();
+/// Changes one session and tells the UI.
+fn session_update(app: &AppHandle, sid: u64, f: impl FnOnce(&mut Session)) {
+    update(app, |i| {
+        if let Some(s) = i.sessions.iter_mut().find(|s| s.status.id == sid) {
+            f(s);
+        }
     });
 }
 
-pub fn is_running(app: &AppHandle) -> bool {
-    app.state::<Agent>().status.lock().unwrap().running
+#[derive(Clone, Serialize)]
+struct Tagged {
+    sid: u64,
+    #[serde(flatten)]
+    event: AgentEvent,
+}
+
+fn emit(app: &AppHandle, sid: u64, event: AgentEvent) {
+    let _ = app.emit("agent", Tagged { sid, event });
+}
+
+fn add_session(inner: &mut Inner, project: String) -> u64 {
+    inner.next_id += 1;
+    let id = inner.next_id;
+    inner.sessions.push(Session {
+        status: SessionStatus { id, project, ..Default::default() },
+        claude: None,
+        pid: None,
+        stopping: false,
+    });
+    id
+}
+
+/// Open sessions' folders and the recent list go to config.json.
+fn persist(inner: &mut Inner, used: Option<&str>) {
+    let mut cfg = Config::load();
+    if let Some(path) = used {
+        cfg.recent_projects.retain(|p| !p.eq_ignore_ascii_case(path));
+        cfg.recent_projects.insert(0, path.to_string());
+        cfg.recent_projects.truncate(MAX_RECENT);
+    }
+    cfg.sessions = inner.sessions.iter().map(|s| s.status.project.clone()).collect();
+    cfg.project = cfg.sessions.first().cloned();
+    cfg.save();
+    inner.recent = cfg.recent_projects;
+}
+
+fn sync_review(app: &AppHandle) {
+    let projects: Vec<String> = {
+        let agent = app.state::<Agent>();
+        let inner = agent.inner.lock().unwrap();
+        inner.sessions.iter().map(|s| s.status.project.clone()).collect()
+    };
+    review::track(app, projects);
+}
+
+/// Restores the open sessions and the recent list from config.json.
+pub fn init(app: &AppHandle, cfg: &Config) {
+    let mut projects = cfg.sessions.clone();
+    if projects.is_empty() {
+        projects.extend(cfg.project.clone());
+    }
+    update(app, |i| {
+        i.recent = cfg.recent_projects.clone();
+        for p in projects.into_iter().filter(|p| Path::new(p).is_dir()).take(MAX_SESSIONS) {
+            add_session(i, p);
+        }
+    });
+    sync_review(app);
+}
+
+/// Claude is working in this folder (in any session).
+pub fn is_running_in(app: &AppHandle, project: &str) -> bool {
+    let agent = app.state::<Agent>();
+    let inner = agent.inner.lock().unwrap();
+    inner.sessions.iter().any(|s| s.status.running && s.status.project.eq_ignore_ascii_case(project))
 }
 
 // ---------------------------------------------------------------- describing steps
@@ -225,28 +328,27 @@ struct Outcome {
     auth_failed: bool,
 }
 
-fn run(app: AppHandle, prompt: String, mode: String, allow: Vec<String>, model: Option<String>) {
-    let agent = app.state::<Agent>();
-    let run = agent.runs.fetch_add(1, Ordering::SeqCst) + 1;
+fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String>, model: Option<String>) {
+    let run = app.state::<Agent>().runs.fetch_add(1, Ordering::SeqCst) + 1;
     let started = Instant::now();
-    agent.stopping.store(false, Ordering::SeqCst);
-    emit(&app, AgentEvent::Start { run, prompt: prompt.clone() });
-    update(&app, |s| {
-        s.running = true;
-        s.current = Some("Thinking…".into());
-        s.started_at = Some(now_ms());
-    });
+    emit(&app, sid, AgentEvent::Start { run, prompt: prompt.clone() });
 
-    let result = execute(&app, run, &prompt, &mode, &allow, model.as_deref());
-    if mode == "reckless" {
-        // reckless: whatever Claude changed is kept without asking
-        let _ = review::accept_all(&app);
-    } else {
-        review::refresh(&app);
+    let result = execute(&app, sid, run, &prompt, &mode, &allow, model.as_deref());
+    let project = with_session(&app, sid, |s| s.status.project.clone());
+    if let Some(project) = &project {
+        if mode == "reckless" {
+            // reckless: whatever Claude changed is kept without asking
+            let _ = review::accept_all(&app, project);
+        } else {
+            review::refresh(&app, project);
+        }
     }
 
-    *agent.pid.lock().unwrap() = None;
-    let stopped = agent.stopping.swap(false, Ordering::SeqCst);
+    let stopped = with_session(&app, sid, |s| {
+        s.pid = None;
+        std::mem::take(&mut s.stopping)
+    })
+    .unwrap_or(true);
     let (ok, message, denied) = match result {
         _ if stopped => (false, Some("Stopped".to_string()), Vec::new()),
         Err(e) => (false, Some(e), Vec::new()),
@@ -263,7 +365,13 @@ fn run(app: AppHandle, prompt: String, mode: String, allow: Vec<String>, model: 
             }
         }
     };
-    emit(&app, AgentEvent::Done {
+    // idle first, so a message queued in the UI can go out as soon as it hears "done"
+    session_update(&app, sid, |s| {
+        s.status.running = false;
+        s.status.current = None;
+        s.status.started_at = None;
+    });
+    emit(&app, sid, AgentEvent::Done {
         run,
         ok,
         stopped,
@@ -271,18 +379,11 @@ fn run(app: AppHandle, prompt: String, mode: String, allow: Vec<String>, model: 
         duration_ms: started.elapsed().as_millis() as u64,
         denied,
     });
-    update(&app, |s| {
-        s.running = false;
-        s.current = None;
-        s.started_at = None;
-    });
 }
 
-fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String], model: Option<&str>) -> Result<Outcome, String> {
-    let agent = app.state::<Agent>();
+fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow: &[String], model: Option<&str>) -> Result<Outcome, String> {
     let cli = claude::find_cli().ok_or("Claude Code isn't installed yet.")?;
-    let project = agent.status.lock().unwrap().project.clone().ok_or("Choose a project folder first.")?;
-    let session = agent.session.lock().unwrap().clone();
+    let (project, session) = with_session(app, sid, |s| (s.status.project.clone(), s.claude.clone())).ok_or("That session was closed.")?;
 
     let mut cmd = Command::new(&cli);
     cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--permission-prompts", "none"]);
@@ -314,8 +415,9 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start Claude: {e}"))?;
-    *agent.pid.lock().unwrap() = Some(child.id());
-    paths::log(format!("agent run {run} in {project} ({mode})"));
+    let pid = child.id();
+    with_session(app, sid, |s| s.pid = Some(pid));
+    paths::log(format!("agent run {run} (session {sid}) in {project} ({mode})"));
 
     // the prompt goes through stdin, so no command-line quoting is involved
     if let Some(mut stdin) = child.stdin.take() {
@@ -340,10 +442,11 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
         let Ok(line) = line else { break };
         let Ok(ev) = serde_json::from_str::<Value>(&line) else { continue };
         if let Some(id) = ev.get("session_id").and_then(Value::as_str) {
-            let mut s = agent.session.lock().unwrap();
-            if s.as_deref() != Some(id) {
-                *s = Some(id.to_string());
-            }
+            with_session(app, sid, |s| {
+                if s.claude.as_deref() != Some(id) {
+                    s.claude = Some(id.to_string());
+                }
+            });
         }
         // sub-agent chatter stays inside its "Delegating" step
         if ev.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
@@ -353,7 +456,7 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
             Some("system") if ev.get("subtype").and_then(Value::as_str) == Some("init") => {
                 if let Some(m) = ev.get("model").and_then(Value::as_str) {
                     let m = m.to_string();
-                    update(app, |s| s.model = Some(m));
+                    session_update(app, sid, |s| s.status.model = Some(m));
                 }
             }
             Some("assistant") => {
@@ -366,7 +469,7 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
                         Some("text") => {
                             let text = part.get("text").and_then(Value::as_str).unwrap_or("").trim();
                             if !text.is_empty() && !out.auth_failed {
-                                emit(app, AgentEvent::Text { run, text: text.to_string() });
+                                emit(app, sid, AgentEvent::Text { run, text: text.to_string() });
                             }
                         }
                         Some("tool_use") => {
@@ -378,8 +481,8 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
                             if icon == "edit" || icon == "create" {
                                 edits.insert(id.clone());
                             }
-                            update(app, |s| s.current = Some(label.clone()));
-                            emit(app, AgentEvent::Step { run, id, icon, label, detail });
+                            session_update(app, sid, |s| s.status.current = Some(label.clone()));
+                            emit(app, sid, AgentEvent::Step { run, id, icon, label, detail });
                         }
                         _ => {}
                     }
@@ -391,21 +494,21 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
                     let id = part.get("tool_use_id").and_then(Value::as_str).unwrap_or("").to_string();
                     let ok = !part.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                     let output = part.get("content").and_then(result_text);
-                    update(app, |s| s.current = Some("Thinking…".into()));
+                    session_update(app, sid, |s| s.status.current = Some("Thinking…".into()));
                     let edited = edits.remove(&id);
-                    emit(app, AgentEvent::StepDone { run, id, ok, output });
+                    emit(app, sid, AgentEvent::StepDone { run, id, ok, output });
                     if edited && mode != "reckless" {
-                        review::refresh(app);
+                        review::refresh(app, &project);
                     }
                 }
             }
             Some("rate_limit_event") => {
                 if let Some(limit) = ev.get("rate_limit_info").and_then(parse_limit) {
-                    update(app, |s| {
+                    update(app, |i| {
                         // keep the last known usage of the same window when this event doesn't carry one
                         let same_window = |l: &&Limit| l.resets_at == limit.resets_at;
-                        let used = limit.used.or(s.limit.as_ref().filter(same_window).and_then(|l| l.used));
-                        s.limit = Some(Limit { used, ..limit });
+                        let used = limit.used.or(i.limit.as_ref().filter(same_window).and_then(|l| l.used));
+                        i.limit = Some(Limit { used, ..limit });
                     });
                 }
             }
@@ -431,7 +534,7 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
         }
     }
     let status = child.wait().map_err(|e| e.to_string())?;
-    if out.result.is_none() && !agent.stopping.load(Ordering::SeqCst) {
+    if out.result.is_none() && !with_session(app, sid, |s| s.stopping).unwrap_or(true) {
         let tail = stderr_tail.lock().unwrap().clone();
         let last = tail.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
         paths::log(format!("agent run {run} ended without result ({status}): {last}"));
@@ -442,70 +545,110 @@ fn execute(app: &AppHandle, run: u64, prompt: &str, mode: &str, allow: &[String]
     Ok(out)
 }
 
-// ---------------------------------------------------------------- project folder
-
-fn set_project_inner(app: &AppHandle, path: String) -> Result<(), String> {
-    if !Path::new(&path).is_dir() {
-        return Err("That folder doesn't exist anymore.".into());
-    }
-    let agent = app.state::<Agent>();
-    if agent.status.lock().unwrap().running {
-        return Err("Wait until Claude has finished.".into());
-    }
-    *agent.session.lock().unwrap() = None;
-    let mut cfg = Config::load();
-    cfg.recent_projects.retain(|p| !p.eq_ignore_ascii_case(&path));
-    cfg.recent_projects.insert(0, path.clone());
-    cfg.recent_projects.truncate(MAX_RECENT);
-    cfg.project = Some(path.clone());
-    cfg.save();
-    review::set_project(app, Some(path.clone()));
-    update(app, |s| {
-        s.project = Some(path);
-        s.recent = cfg.recent_projects.clone();
-    });
-    Ok(())
-}
-
 // ---------------------------------------------------------------- commands
+
+fn check_dir(path: &str) -> Result<(), String> {
+    if Path::new(path).is_dir() {
+        Ok(())
+    } else {
+        Err("That folder doesn't exist anymore.".into())
+    }
+}
 
 #[tauri::command]
 pub fn agent_status(app: AppHandle) -> AgentStatus {
-    let agent = app.state::<Agent>();
-    let mut s = agent.status.lock().unwrap().clone();
-    s.has_session = agent.session.lock().unwrap().is_some();
-    s
+    snapshot(&app.state::<Agent>().inner.lock().unwrap())
+}
+
+/// Opens a new session in `path`; returns its id.
+#[tauri::command]
+pub fn agent_open(app: AppHandle, path: String) -> Result<u64, String> {
+    check_dir(&path)?;
+    let mut result = Err("You can have up to 9 sessions open.".to_string());
+    update(&app, |i| {
+        if i.sessions.len() < MAX_SESSIONS {
+            result = Ok(add_session(i, path.clone()));
+            persist(i, Some(&path));
+        }
+    });
+    sync_review(&app);
+    result
+}
+
+/// Closes a session (stopping Claude first if it's working).
+#[tauri::command]
+pub fn agent_close(app: AppHandle, sid: u64) {
+    agent_stop(app.clone(), sid);
+    update(&app, |i| {
+        i.sessions.retain(|s| s.status.id != sid);
+        persist(i, None);
+    });
+    sync_review(&app);
+}
+
+/// Moves an idle session to another folder (a new conversation starts there).
+#[tauri::command]
+pub fn agent_set_project(app: AppHandle, sid: u64, path: String) -> Result<(), String> {
+    check_dir(&path)?;
+    let mut result = Ok(());
+    update(&app, |i| {
+        match i.sessions.iter_mut().find(|s| s.status.id == sid) {
+            Some(s) if s.status.running => result = Err("Wait until Claude has finished.".to_string()),
+            Some(s) => {
+                s.status.project = path.clone();
+                s.status.model = None;
+                s.claude = None;
+            }
+            None => result = Err("That session was closed.".to_string()),
+        }
+        if result.is_ok() {
+            persist(i, Some(&path));
+        }
+    });
+    sync_review(&app);
+    result
+}
+
+/// The system folder picker; returns the chosen folder.
+#[tauri::command]
+pub async fn agent_pick_folder(app: AppHandle, current: Option<String>) -> Result<Option<String>, String> {
+    let mut dialog = app.dialog().file().set_title("Choose the folder Claude works in");
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    if let Some(cur) = current.filter(|c| Path::new(c).is_dir()) {
+        dialog = dialog.set_directory(cur);
+    }
+    let Some(picked) = dialog.blocking_pick_folder() else { return Ok(None) };
+    Ok(Some(picked.into_path().map_err(|e| e.to_string())?.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
-pub fn agent_send(app: AppHandle, prompt: String, mode: String, allow: Vec<String>, model: Option<String>) -> Result<(), String> {
+pub fn agent_send(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String>, model: Option<String>) -> Result<(), String> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
         return Ok(());
     }
-    {
-        let agent = app.state::<Agent>();
-        let status = agent.status.lock().unwrap();
-        if status.running {
-            return Err("Claude is still working.".into());
+    let mut result = Ok(());
+    update(&app, |i| match i.sessions.iter_mut().find(|s| s.status.id == sid) {
+        Some(s) if s.status.running => result = Err("Claude is still working.".to_string()),
+        Some(s) => {
+            s.status.running = true;
+            s.status.current = Some("Thinking…".into());
+            s.status.started_at = Some(now_ms());
+            s.stopping = false;
         }
-        if status.project.is_none() {
-            return Err("Choose a project folder first.".into());
-        }
-    }
+        None => result = Err("That session was closed.".to_string()),
+    });
+    result?;
     let mode = if MODES.contains(&mode.as_str()) { mode } else { "auto".into() };
     // an alias ("opus", "sonnet", …) or a full model name
     let model = model.filter(|m| !m.is_empty() && m.chars().all(|c| c.is_ascii_alphanumeric() || "-._[]".contains(c)));
-    std::thread::spawn(move || run(app, prompt, mode, allow, model));
+    std::thread::spawn(move || run(app, sid, prompt, mode, allow, model));
     Ok(())
 }
 
-/// Stops the running message (and everything Claude started for it).
-#[tauri::command]
-pub fn agent_stop(app: AppHandle) {
-    let agent = app.state::<Agent>();
-    let Some(pid) = *agent.pid.lock().unwrap() else { return };
-    agent.stopping.store(true, Ordering::SeqCst);
+fn kill_tree(pid: u32) {
     let mut cmd = Command::new("taskkill");
     cmd.args(["/T", "/F", "/PID", &pid.to_string()]).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
@@ -516,36 +659,36 @@ pub fn agent_stop(app: AppHandle) {
     let _ = cmd.status();
 }
 
+/// Stops the running message of a session (and everything Claude started for it).
+#[tauri::command]
+pub fn agent_stop(app: AppHandle, sid: u64) {
+    let pid = with_session(&app, sid, |s| {
+        if s.pid.is_some() {
+            s.stopping = true;
+        }
+        s.pid
+    })
+    .flatten();
+    if let Some(pid) = pid {
+        kill_tree(pid);
+    }
+}
+
+/// Stops every session (on quit).
+pub fn stop_all(app: &AppHandle) {
+    let ids: Vec<u64> = app.state::<Agent>().inner.lock().unwrap().sessions.iter().map(|s| s.status.id).collect();
+    for sid in ids {
+        agent_stop(app.clone(), sid);
+    }
+}
+
 /// Forgets the conversation; the next message starts a new one.
 #[tauri::command]
-pub fn agent_new(app: AppHandle) {
-    *app.state::<Agent>().session.lock().unwrap() = None;
-    update(&app, |_| {});
+pub fn agent_new(app: AppHandle, sid: u64) {
+    session_update(&app, sid, |s| s.claude = None);
 }
 
 #[tauri::command]
-pub fn agent_set_project(app: AppHandle, path: String) -> Result<(), String> {
-    set_project_inner(&app, path)
-}
-
-/// Opens the system folder picker; returns the chosen folder (already set as project).
-#[tauri::command]
-pub async fn agent_pick_project(app: AppHandle) -> Result<Option<String>, String> {
-    let mut dialog = app.dialog().file().set_title("Choose the folder Claude works in");
-    if let Some(window) = app.get_webview_window("main") {
-        dialog = dialog.set_parent(&window);
-    }
-    if let Some(cur) = app.state::<Agent>().status.lock().unwrap().project.clone() {
-        dialog = dialog.set_directory(cur);
-    }
-    let Some(picked) = dialog.blocking_pick_folder() else { return Ok(None) };
-    let path = picked.into_path().map_err(|e| e.to_string())?.to_string_lossy().into_owned();
-    set_project_inner(&app, path.clone())?;
-    Ok(Some(path))
-}
-
-#[tauri::command]
-pub fn agent_open_project(app: AppHandle) -> Result<(), String> {
-    let project = app.state::<Agent>().status.lock().unwrap().project.clone().ok_or("No project folder")?;
-    app.opener().open_path(project, None::<&str>).map_err(|e| e.to_string())
+pub fn agent_open_folder(app: AppHandle, path: String) -> Result<(), String> {
+    app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }

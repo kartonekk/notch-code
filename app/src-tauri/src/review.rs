@@ -6,7 +6,7 @@
 //! the notch can list what changed, open a live diff in VS Code, and accept
 //! (keep) or reject (restore) each change.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -47,7 +47,8 @@ pub struct FileChange {
 
 #[derive(Clone, Debug, Serialize, Default)]
 pub struct ReviewStatus {
-    pub files: Vec<FileChange>,
+    /// project folder -> Claude's changes there, waiting for accept / reject
+    pub projects: HashMap<String, Vec<FileChange>>,
     /// Live diff: every changed file opens in VS Code as it changes.
     pub live: bool,
     /// VS Code's `code` command was found.
@@ -57,7 +58,6 @@ pub struct ReviewStatus {
 #[derive(Default)]
 pub struct Review {
     status: Mutex<ReviewStatus>,
-    project: Mutex<Option<String>>,
     /// Files whose live diff is already open.
     opened: Mutex<HashSet<String>>,
 }
@@ -249,44 +249,48 @@ fn changes(project: &str) -> Vec<FileChange> {
         .collect()
 }
 
-/// Re-reads the changes of the current project and tells the UI; with live
-/// diff on, files that just started changing open in VS Code.
-pub fn refresh(app: &AppHandle) {
+fn emit_status(app: &AppHandle) {
+    let snapshot = app.state::<Review>().status.lock().unwrap().clone();
+    let _ = app.emit("review", snapshot);
+}
+
+/// Re-reads the changes of one project and tells the UI; with live diff on,
+/// files that just started changing open in VS Code.
+pub fn refresh(app: &AppHandle, project: &str) {
     let review = app.state::<Review>();
-    let project = review.project.lock().unwrap().clone();
-    let files = project.as_deref().map(changes).unwrap_or_default();
+    let files = changes(project);
     let live = review.status.lock().unwrap().live;
     if live {
         let mut opened = review.opened.lock().unwrap();
         for f in &files {
             if opened.insert(f.path.clone()) {
-                if let Some(p) = &project {
-                    let _ = open_diff(p, &f.path);
-                }
+                let _ = open_diff(project, &f.path);
             }
         }
     }
-    let snapshot = {
+    {
         let mut s = review.status.lock().unwrap();
-        s.files = files;
+        s.projects.insert(project.to_string(), files);
         s.vscode = find_vscode().is_some();
-        s.clone()
-    };
-    let _ = app.emit("review", snapshot);
+    }
+    emit_status(app);
 }
 
-/// Switches the project whose changes are shown.
-pub fn set_project(app: &AppHandle, project: Option<String>) {
-    let review = app.state::<Review>();
-    *review.project.lock().unwrap() = project;
-    review.opened.lock().unwrap().clear();
-    refresh(app);
+/// The projects whose changes are shown (the folders of the open sessions).
+pub fn track(app: &AppHandle, projects: Vec<String>) {
+    {
+        let review = app.state::<Review>();
+        review.status.lock().unwrap().projects.retain(|p, _| projects.contains(p));
+    }
+    for p in &projects {
+        refresh(app, p);
+    }
+    emit_status(app);
 }
 
 /// Drops the snapshot of `paths` (all when None); `restore` puts the originals back first.
-fn settle(app: &AppHandle, only: Option<String>, restore: bool) -> Result<(), String> {
-    let project = app.state::<Review>().project.lock().unwrap().clone().ok_or("No project")?;
-    let dir = dir_for(&project);
+fn settle(app: &AppHandle, project: &str, only: Option<String>, restore: bool) -> Result<(), String> {
+    let dir = dir_for(project);
     with_lock(&dir, || -> Result<(), String> {
         let mut m = load(&dir);
         let targets: Vec<String> = match &only {
@@ -315,13 +319,13 @@ fn settle(app: &AppHandle, only: Option<String>, restore: bool) -> Result<(), St
         }
         save(&dir, &m)
     })?;
-    refresh(app);
+    refresh(app, project);
     Ok(())
 }
 
 /// Keeps every pending change (reckless mode, after each run).
-pub fn accept_all(app: &AppHandle) -> Result<(), String> {
-    settle(app, None, false)
+pub fn accept_all(app: &AppHandle, project: &str) -> Result<(), String> {
+    settle(app, project, None, false)
 }
 
 // ---------------------------------------------------------------- VS Code
@@ -385,22 +389,21 @@ pub fn review_status(state: tauri::State<Review>) -> ReviewStatus {
 
 /// Keep the changes (all, or one file).
 #[tauri::command]
-pub fn review_accept(app: AppHandle, path: Option<String>) -> Result<(), String> {
-    settle(&app, path, false)
+pub fn review_accept(app: AppHandle, project: String, path: Option<String>) -> Result<(), String> {
+    settle(&app, &project, path, false)
 }
 
 /// Put the originals back (all, or one file).
 #[tauri::command]
-pub fn review_reject(app: AppHandle, path: Option<String>) -> Result<(), String> {
-    if crate::agent::is_running(&app) {
+pub fn review_reject(app: AppHandle, project: String, path: Option<String>) -> Result<(), String> {
+    if crate::agent::is_running_in(&app, &project) {
         return Err("Wait until Claude has finished.".into());
     }
-    settle(&app, path, true)
+    settle(&app, &project, path, true)
 }
 
 #[tauri::command]
-pub fn review_diff(app: AppHandle, path: String) -> Result<(), String> {
-    let project = app.state::<Review>().project.lock().unwrap().clone().ok_or("No project")?;
+pub fn review_diff(app: AppHandle, project: String, path: String) -> Result<(), String> {
     app.state::<Review>().opened.lock().unwrap().insert(path.clone());
     open_diff(&project, &path)
 }
@@ -411,13 +414,18 @@ pub fn review_set_live(app: AppHandle, live: bool) -> Result<(), String> {
     if live && find_vscode().is_none() {
         return Err("VS Code not found (install it, or add `code` to PATH).".into());
     }
-    {
+    let projects: Vec<String> = {
         let review = app.state::<Review>();
-        review.status.lock().unwrap().live = live;
+        let mut s = review.status.lock().unwrap();
+        s.live = live;
         if live {
             review.opened.lock().unwrap().clear();
         }
+        s.projects.keys().cloned().collect()
+    };
+    for p in &projects {
+        refresh(&app, p);
     }
-    refresh(&app);
+    emit_status(&app);
     Ok(())
 }

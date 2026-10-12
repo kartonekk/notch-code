@@ -1130,38 +1130,6 @@ button {
   color: #ffe0b2;
 }
 
-.composer {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 6px 6px 6px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: border-color 150ms;
-}
-.composer:focus-within {
-  border-color: var(--accent);
-}
-.composer textarea {
-  flex: 1;
-  min-width: 0;
-  resize: none;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  line-height: 1.45;
-  padding: 5px 0;
-  max-height: 110px;
-  user-select: text;
-}
-.composer textarea::placeholder {
-  color: #6e6e73;
-}
 .send-btn {
   flex: none;
   width: 30px;
@@ -1347,51 +1315,78 @@ button {
   color: var(--ok);
 }
 
-/* pill under the collapsed notch */
-.review-pill {
+/* review notifications under the collapsed notch: one per project, they
+   slide open sideways on hover like macOS notifications */
+.pills {
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
+  width: 0;
+  height: 0;
+}
+.pill {
+  position: absolute;
+  left: 0;
   transform: translateX(-50%);
-  width: 100%;
-  height: 38px;
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 5px 0 6px;
-  border-radius: 14px;
-  background: rgba(10, 10, 12, 0.96);
-  border: 1px solid rgba(100, 210, 255, 0.25);
+  padding: 0 4px;
+  border-radius: 17px;
+  background: rgba(16, 16, 18, 0.97);
+  border: 1px solid rgba(100, 210, 255, 0.22);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
-  animation: pill-drop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  white-space: nowrap;
+  animation: pill-drop 460ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition:
+    border-color 200ms,
+    box-shadow 200ms;
 }
 @keyframes pill-drop {
   from {
     opacity: 0;
-    transform: translate(-50%, -22px) scale(0.92);
+    transform: translate(-50%, -26px) scale(0.85);
   }
 }
+.pill:hover {
+  border-color: rgba(100, 210, 255, 0.45);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.6),
+    0 0 0 4px rgba(100, 210, 255, 0.06);
+}
 .pill-summary {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border-radius: 9px;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
   font-weight: 600;
   font-size: 12px;
   color: #bfe9ff;
-  white-space: nowrap;
 }
-.pill-summary:hover {
-  background: var(--card);
+.pill-project {
+  color: #fff;
+}
+/* the buttons hide in zero-width side slots until the pill is hovered */
+.pill-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-width 320ms var(--ease),
+    opacity 200ms;
+}
+.pill:hover .pill-side {
+  max-width: 170px;
+  opacity: 1;
 }
 .pill-btn {
-  height: 28px;
+  height: 26px;
   padding: 0 12px;
-  border-radius: 9px;
+  border-radius: 13px;
   font-weight: 700;
   font-size: 12px;
   display: inline-flex;
@@ -1404,7 +1399,15 @@ button {
   background: rgba(255, 69, 58, 0.14);
 }
 .pill-btn.reject:hover {
-  background: rgba(255, 69, 58, 0.24);
+  background: rgba(255, 69, 58, 0.26);
+}
+.pill-btn.diff {
+  color: #d1d1d6;
+  background: var(--card-hover);
+}
+.pill-btn.diff:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
 }
 .pill-btn.accept {
   color: #fff;
@@ -1414,29 +1417,636 @@ button {
   background: #2ea44f;
 }
 
-/* ---------------------------------------------------------------- reckless mode */
+/* ---------------------------------------------------------------- finished */
 
-.segmented button.mode-reckless {
+/* a run ended while the notch was closed: it stays like this until opened */
+.notch.is-finished {
+  --done: 48, 209, 88;
+}
+.notch.is-finished.tone-warn {
+  --done: 255, 159, 10;
+}
+.notch.is-finished.tone-error {
+  --done: 255, 69, 58;
+}
+.notch.is-finished .notch-clip {
+  box-shadow:
+    inset 0 -2px 0 rgba(var(--done), 0.9),
+    0 0 0 1px rgba(var(--done), 0.55);
+  animation: done-breathe 2s ease-in-out infinite;
+}
+.notch.is-finished .notch-clip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(var(--done), 0.22), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: done-sweep 2.4s ease-in-out infinite;
+}
+@keyframes done-breathe {
+  0%,
+  100% {
+    filter: drop-shadow(0 4px 8px rgba(var(--done), 0.25));
+  }
+  50% {
+    filter: drop-shadow(0 6px 18px rgba(var(--done), 0.6));
+  }
+}
+@keyframes done-sweep {
+  from {
+    background-position: -100% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+.notch.is-finished .ticker {
+  font-weight: 600;
+  color: #fff;
+}
+.bar-hint {
+  flex: none;
+  font-size: 11px;
+  color: #6e6e73;
+}
+
+/* ---------------------------------------------------------------- rail */
+
+.panel {
+  flex-direction: row;
+  gap: 12px;
+  padding: 10px 16px 16px 10px;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.rail {
+  flex: none;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 0;
+  position: relative;
+  z-index: 5;
+}
+.rail-spacer {
+  flex: 1;
+}
+.rail-slot,
+.rail-add {
+  position: relative;
+}
+.rail-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  background: var(--card);
+  transition:
+    background 150ms,
+    color 150ms,
+    border-radius 200ms var(--ease);
+}
+.rail-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--card-hover);
+}
+.rail-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.rail-btn.session {
+  color: hsl(var(--h) 80% 78%);
+  background: hsl(var(--h) 45% 22% / 0.6);
+}
+.rail-btn.session:hover {
+  background: hsl(var(--h) 45% 28% / 0.75);
+  color: hsl(var(--h) 90% 88%);
+}
+.rail-btn.is-active {
+  border-radius: 14px;
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--fg);
+}
+.rail-btn.session.is-active {
+  background: hsl(var(--h) 55% 34%);
+  color: #fff;
+  box-shadow: 0 0 0 2px hsl(var(--h) 80% 70%);
+}
+/* working: a ring spins round the button */
+.rail-btn.is-running::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 15px;
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+.notch.is-reckless .rail-btn.is-running::after {
+  border-top-color: #ff9f0a;
+  border-right-color: #ff453a;
+}
+.rail-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #000;
+  background: var(--ok);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.rail-badge.is-warn {
+  background: #ff9f0a;
+}
+.rail-badge.is-error {
+  background: var(--rec);
+}
+.rail-count {
+  position: absolute;
+  bottom: -4px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 2px solid #000;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 12px;
+}
+.rail-close {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: none;
+  place-items: center;
+  background: #3a3a3e;
+  color: #fff;
+  border: 2px solid #000;
+}
+.rail-close svg {
+  width: 8px;
+  height: 8px;
+}
+.rail-slot:hover .rail-close {
+  display: grid;
+}
+.rail-close:hover {
+  background: var(--rec);
+}
+.rail-btn.mic.is-recording {
+  color: #fff;
+  background: var(--rec);
+  animation: rec-glow 1.4s ease-in-out infinite;
+}
+.rail-btn.mic.is-paused {
+  color: #000;
+  background: #ffd60a;
+}
+@keyframes rec-glow {
+  50% {
+    box-shadow: 0 0 0 5px rgba(255, 69, 58, 0.25);
+  }
+}
+.menu.menu-side {
+  top: 0;
+  left: 44px;
+  width: 300px;
+}
+.menu-item.is-danger .menu-title {
+  color: #ff8a80;
+}
+
+.view-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.panel-head .project {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-head .new-chat {
+  margin-left: 4px;
+}
+
+/* ---------------------------------------------------------------- queue */
+
+.queue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 6px;
+}
+.queued {
+  max-width: 85%;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 14px 14px 4px 14px;
+  border: 1px dashed rgba(10, 132, 255, 0.55);
+  background: rgba(10, 132, 255, 0.08);
+  color: #b9d9ff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: line-in 200ms ease both;
+}
+.queued-text {
+  flex: 1;
+  min-width: 0;
+}
+.queued-x {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.queued-x:hover {
+  color: var(--fg);
+  background: var(--card-hover);
+}
+.queue-note {
+  font-size: 11px;
+  color: #6e6e73;
+}
+.send-btn.is-queue {
+  background: rgba(10, 132, 255, 0.35);
+}
+
+/* ---------------------------------------------------------------- code tab layout */
+
+.session-label {
+  flex: none;
+  font-size: 11.5px;
+  color: #6e6e73;
+  white-space: nowrap;
+}
+.new-chat {
+  flex: none;
+  height: 28px;
+  padding: 0 10px 0 7px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--card);
+  font-size: 12px;
+  font-weight: 600;
+  color: #d1d1d6;
+}
+.new-chat svg {
+  width: 13px;
+  height: 13px;
+}
+.new-chat:hover:not(:disabled) {
+  background: var(--card-hover);
+  color: var(--fg);
+}
+.new-chat:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.feed-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.jump-latest.jump-feed {
+  bottom: 8px;
+}
+
+kbd {
+  display: inline-block;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #c7c7cc;
+}
+.key-hints {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: #6e6e73;
+}
+.empty-title {
+  font-size: 14px;
+}
+
+.recent-list {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recent {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 9px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--card);
+  text-align: left;
+}
+.recent:hover {
+  background: var(--card-hover);
+}
+.recent svg {
+  grid-row: 1 / span 2;
+  color: var(--muted);
+}
+.recent-name {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.recent-path {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.run + .run {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.run-fold {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--card);
+}
+.run-fold:hover {
+  background: var(--card-hover);
+  color: var(--fg);
+}
+
+.answer {
+  position: relative;
+}
+.copy-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: rgba(28, 28, 30, 0.92);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.answer:hover .copy-btn {
+  opacity: 1;
+}
+.copy-btn:hover {
+  color: var(--fg);
+}
+.copy-btn.is-copied {
+  opacity: 1;
+  color: var(--ok);
+}
+
+.done .mini-btn {
+  gap: 4px;
+  margin-left: 4px;
+}
+
+/* what Claude is doing right now */
+.run-strip {
+  flex: none;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  margin-top: 8px;
+  padding: 0 4px 0 10px;
+  border-radius: 10px;
+  background: rgba(10, 132, 255, 0.09);
+  border: 1px solid rgba(10, 132, 255, 0.22);
+  font-size: 12px;
+  animation: line-in 160ms ease both;
+}
+.run-strip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 30%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: run-scan 1.4s ease-in-out infinite;
+}
+@keyframes run-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.run-strip .mini-spinner {
+  color: var(--accent);
+}
+.run-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cfe5ff;
+}
+.run-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.run-stop {
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ff8a80;
+  background: rgba(255, 69, 58, 0.14);
+}
+.run-stop:hover {
+  background: rgba(255, 69, 58, 0.26);
+}
+.run-stop .stop-sq {
+  width: 8px;
+  height: 8px;
+}
+.run-stop kbd {
+  color: #ff8a80;
+  border-color: rgba(255, 138, 128, 0.3);
+  background: transparent;
+}
+
+/* composer: message on top, how to handle it underneath */
+.composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 6px 6px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: text;
+  transition: border-color 150ms;
+}
+.composer:focus-within {
+  border-color: var(--accent);
+}
+.composer textarea {
+  flex: none;
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  line-height: 1.45;
+  padding: 1px 0;
+  max-height: 110px;
+  user-select: text;
+}
+.composer textarea::placeholder {
+  color: #6e6e73;
+}
+.composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -6px;
+  cursor: default;
+}
+.segmented.modes button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 0 9px 0 7px;
 }
+.segmented.modes button svg {
+  flex: none;
+  opacity: 0.8;
+}
+.mode-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  padding-right: 2px;
+  font-size: 11.5px;
+  color: #6e6e73;
+}
+.mode-hint.is-arming {
+  color: #ff9f0a;
+  font-weight: 600;
+}
+.menu.menu-up {
+  top: auto;
+  bottom: 34px;
+  left: 0;
+  width: 250px;
+}
+
+/* ---------------------------------------------------------------- reckless mode */
+
+/* the mode button */
 .segmented button.mode-reckless svg {
   color: #ff9f0a;
+  opacity: 1;
 }
 .segmented button.mode-reckless.is-active {
   color: #fff;
-  background: linear-gradient(90deg, #ff453a, #ff9f0a, #ff453a);
+  background: linear-gradient(90deg, #ff2d1a, #ff9f0a, #ffd60a, #ff9f0a, #ff2d1a);
   background-size: 200% 100%;
-  animation: flame-slide 1.6s linear infinite;
+  box-shadow: 0 0 12px rgba(255, 90, 30, 0.55);
+  text-shadow: 0 1px 2px rgba(120, 0, 0, 0.6);
+  animation: flame-slide 1.2s linear infinite;
 }
 .segmented button.mode-reckless.is-active svg {
   color: #fff;
-  animation: flicker 0.35s ease-in-out infinite alternate;
+  animation: flicker 0.25s ease-in-out infinite alternate;
 }
 .segmented button.mode-reckless.is-arming {
   color: #ff9f0a;
-  background: rgba(255, 159, 10, 0.16);
+  background: rgba(255, 159, 10, 0.18);
+  animation: arming 0.4s ease-in-out infinite alternate;
+}
+@keyframes arming {
+  to {
+    background: rgba(255, 69, 58, 0.32);
+    color: #fff;
+  }
 }
 @keyframes flame-slide {
   to {
@@ -1445,62 +2055,161 @@ button {
 }
 @keyframes flicker {
   from {
-    transform: scale(0.9) rotate(-6deg);
+    transform: scale(0.85) rotate(-8deg);
   }
   to {
-    transform: scale(1.12) rotate(5deg);
+    transform: scale(1.18) rotate(6deg);
   }
 }
 
-/* glowing edge + a spark sweeping along the bottom of the notch */
-.notch.is-reckless .notch-clip {
-  box-shadow:
-    0 0 0 1px rgba(255, 90, 40, 0.75),
-    0 6px 22px rgba(255, 69, 58, 0.35);
+/* Fire racing around the whole outline: two hot spots chase each other round
+   the edge (the top edge sits off-screen), and a blurred glow underneath spins
+   the other way and flickers, so every side is always moving. */
+@property --fire-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
 }
-.notch.is-reckless .notch-clip::after {
+.notch.is-reckless {
+  isolation: isolate;
+}
+.notch.is-reckless::before,
+.notch.is-reckless::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #ff9f0a, #ff453a, transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
-  animation: spark 1.4s linear infinite;
   pointer-events: none;
+  background: conic-gradient(
+    from var(--fire-a),
+    transparent 0deg,
+    #ff2d1a 30deg,
+    #ff9f0a 58deg,
+    #fff1a8 72deg,
+    #ff9f0a 84deg,
+    transparent 130deg,
+    transparent 180deg,
+    #ff2d1a 210deg,
+    #ff9f0a 238deg,
+    #fff1a8 252deg,
+    #ff9f0a 264deg,
+    transparent 310deg
+  );
+  transition: border-radius 260ms var(--ease);
 }
-.notch.is-reckless.is-working .notch-clip::after {
-  animation-duration: 0.6s;
+.notch.is-reckless::before {
+  inset: -4px -2px -2px;
+  padding: 2px;
+  border-radius: 0 0 20px 20px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 2;
+  animation: fire-spin 2.2s linear infinite;
 }
-@keyframes spark {
+.notch.is-reckless::after {
+  inset: -8px -7px -7px;
+  border-radius: 0 0 26px 26px;
+  filter: blur(9px);
+  z-index: -1;
+  animation:
+    fire-spin-rev 3.3s linear infinite,
+    glow-flicker 0.16s steps(2) infinite alternate;
+}
+.notch.is-reckless.is-expanded::before {
+  border-radius: 0 0 30px 30px;
+}
+.notch.is-reckless.is-expanded::after {
+  border-radius: 0 0 36px 36px;
+}
+.notch.is-reckless.is-working::before {
+  animation-duration: 0.9s;
+}
+.notch.is-reckless.is-working::after {
+  animation-duration: 1.4s, 0.1s;
+}
+@keyframes fire-spin {
+  to {
+    --fire-a: 360deg;
+  }
+}
+@keyframes fire-spin-rev {
   from {
-    background-position: -40% 0;
+    --fire-a: 360deg;
   }
   to {
-    background-position: 140% 0;
+    --fire-a: 0deg;
   }
 }
+@keyframes glow-flicker {
+  from {
+    opacity: 0.95;
+  }
+  to {
+    opacity: 0.6;
+  }
+}
+
+/* heat drifting along the bottom inside the notch */
+.notch.is-reckless .notch-clip::before {
+  content: "";
+  position: absolute;
+  left: -50%;
+  width: 200%;
+  bottom: 0;
+  height: 100%;
+  max-height: 140px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 18% 70% at 25% 120%, rgba(255, 60, 20, 0.38), transparent 70%),
+    radial-gradient(ellipse 14% 60% at 55% 125%, rgba(255, 150, 10, 0.3), transparent 70%),
+    radial-gradient(ellipse 20% 70% at 82% 120%, rgba(255, 45, 26, 0.34), transparent 70%);
+  animation: heat-drift 2.6s ease-in-out infinite alternate;
+}
+.notch.is-reckless .bar {
+  position: relative;
+  z-index: 1;
+}
+@keyframes heat-drift {
+  0% {
+    transform: translateX(-12%);
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(12%);
+    opacity: 0.75;
+  }
+}
+
 .notch.is-igniting {
-  animation: ignite 700ms ease both;
+  animation: ignite 800ms ease both;
 }
 @keyframes ignite {
   0% {
     filter: brightness(1);
   }
-  15% {
-    transform: translateX(-3px);
-    filter: brightness(1.8) saturate(1.6);
+  10% {
+    transform: translate(-5px, 1px) rotate(-0.6deg);
+    filter: brightness(2.4) saturate(2);
   }
-  30% {
-    transform: translateX(3px);
+  22% {
+    transform: translate(5px, -1px) rotate(0.6deg);
   }
-  45% {
+  34% {
+    transform: translate(-4px, 1px);
+    filter: brightness(1.6) saturate(1.6);
+  }
+  46% {
+    transform: translate(3px, 0) rotate(0.3deg);
+  }
+  58% {
     transform: translateX(-2px);
   }
-  60% {
-    transform: translateX(2px);
+  70% {
+    transform: translateX(1px);
   }
   100% {
     transform: none;
@@ -1508,121 +2217,134 @@ button {
   }
 }
 
-/* the road in the collapsed bar */
-.road {
-  position: relative;
-  flex: 1;
-  height: 36px;
+/* ---- expanded panel */
+
+/* hazard tape above the composer */
+.reckless-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  margin-top: 8px;
+  border-radius: 9px;
   overflow: hidden;
-  margin: 0 -16px;
+  background: rgba(255, 69, 58, 0.1);
+  border: 1px solid rgba(255, 90, 40, 0.35);
+  font-size: 12px;
+  color: #ffb199;
+  animation: line-in 180ms ease both;
 }
-.road-dashes {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 4px;
-  height: 2px;
-  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0 14px, transparent 14px 30px);
-  animation: dashes 0.5s linear infinite;
+.reckless-strip b {
+  color: #ff6a4d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-style: italic;
 }
-@keyframes dashes {
-  to {
-    background-position: -30px 0;
-  }
-}
-.car {
-  position: absolute;
-  right: 22%;
-  bottom: 3px;
-  animation: bob 0.32s ease-in-out infinite alternate;
-  filter: drop-shadow(0 2px 3px rgba(255, 69, 58, 0.35));
-}
-.car .wheel {
-  animation: spin 0.35s linear infinite;
-}
-@keyframes bob {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-1.2px);
-  }
-}
-.smoke {
-  position: absolute;
-  /* the exhaust: left end of the car */
-  right: calc(22% + 44px);
-  bottom: 7px;
-  width: 0;
-  height: 0;
-}
-.smoke i {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(220, 220, 230, 0.55), rgba(160, 160, 170, 0) 70%);
-  animation: puff 1.55s ease-out infinite;
-}
-@keyframes puff {
-  0% {
-    transform: translate(0, 0) scale(0.4);
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate(-150px, -9px) scale(3.2);
-    opacity: 0;
-  }
-}
-.smoke-text {
-  position: absolute;
-  right: calc(22% + 60px);
-  top: 50%;
-  transform: translateY(-50%);
-  max-width: calc(78% - 70px);
+.reckless-strip-text {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 800;
-  font-style: italic;
-  font-size: 12px;
-  letter-spacing: 1.6px;
-  text-transform: uppercase;
-  color: rgba(235, 235, 245, 0.75);
-  text-shadow:
-    0 0 6px rgba(200, 200, 210, 0.7),
-    0 0 14px rgba(160, 160, 170, 0.5);
-  animation: smoke-text 2.4s ease-in-out infinite;
 }
-@keyframes smoke-text {
-  0%,
-  100% {
-    filter: blur(0.3px);
-    opacity: 0.85;
-    transform: translate(0, -50%);
-  }
-  50% {
-    filter: blur(1.1px);
-    opacity: 0.55;
-    transform: translate(-4px, -54%);
-  }
+.hazard {
+  flex: none;
+  width: 56px;
+  align-self: stretch;
+  background: repeating-linear-gradient(-45deg, #ffb300 0 7.07px, #161616 7.07px 14.14px);
+  -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, #000 60%, transparent);
+  animation: hazard-move 0.6s linear infinite;
 }
-.road.is-fast .road-dashes {
+.hazard.is-right {
+  -webkit-mask-image: linear-gradient(270deg, #000 60%, transparent);
+  mask-image: linear-gradient(270deg, #000 60%, transparent);
+  animation-direction: reverse;
+}
+.reckless-strip.is-fast .hazard {
   animation-duration: 0.22s;
 }
-.road.is-fast .car .wheel {
-  animation-duration: 0.15s;
+@keyframes hazard-move {
+  to {
+    background-position: 20px 0;
+  }
 }
-.road.is-fast .smoke i {
-  animation-duration: 0.9s;
+
+/* the composer burns at the edges */
+.code.is-reckless .composer,
+.code.is-reckless .composer:focus-within {
+  border-color: transparent;
+  background:
+    linear-gradient(#121212, #121212) padding-box,
+    linear-gradient(90deg, #ff2d1a, #ff9f0a, #ffd60a, #ff9f0a, #ff2d1a) border-box;
+  background-size:
+    100% 100%,
+    200% 100%;
+  animation: border-flow 1.4s linear infinite;
 }
-.road.is-fast .smoke-text {
-  text-transform: none;
-  letter-spacing: 0.2px;
-  font-style: normal;
-  font-weight: 600;
+@keyframes border-flow {
+  to {
+    background-position:
+      0 0,
+      200% 0;
+  }
+}
+.code.is-reckless .send-btn:not(:disabled):not(.is-stop) {
+  background: linear-gradient(135deg, #ff2d1a, #ff9f0a);
+  box-shadow: 0 0 10px rgba(255, 90, 30, 0.5);
+}
+.code.is-reckless .run-strip {
+  background: rgba(255, 69, 58, 0.1);
+  border-color: rgba(255, 90, 40, 0.35);
+}
+.code.is-reckless .run-strip::after {
+  background: linear-gradient(90deg, transparent, #ff9f0a, transparent);
+  animation-duration: 0.7s;
+}
+.code.is-reckless .run-strip .mini-spinner {
+  color: #ff9f0a;
+}
+.code.is-reckless .run-current {
+  color: #ffd2c2;
+}
+
+/* embers rising through the panel */
+.embers {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 4;
+}
+.embers i {
+  position: absolute;
+  bottom: -6px;
+  border-radius: 50%;
+  background: #ffb340;
+  box-shadow: 0 0 6px 1px #ff453a;
+  opacity: 0;
+  animation: ember-rise var(--d) ease-in infinite;
+}
+.embers.is-fast i {
+  animation-duration: calc(var(--d) * 0.55);
+}
+@keyframes ember-rise {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.85;
+  }
+  45% {
+    transform: translate(14px, -210px) scale(0.85);
+  }
+  100% {
+    transform: translate(-10px, -480px) scale(0.4);
+    opacity: 0;
+  }
 }
 
 /* ---------------------------------------------------------------- limit chip & model picker */

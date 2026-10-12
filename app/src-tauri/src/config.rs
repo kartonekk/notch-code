@@ -23,6 +23,8 @@ pub struct Config {
     pub project: Option<String>,
     /// Recently used project folders, newest first.
     pub recent_projects: Vec<String>,
+    /// Folders of the open Claude sessions.
+    pub sessions: Vec<String>,
 }
 
 impl Default for Config {
@@ -38,6 +40,7 @@ impl Default for Config {
             autostart: true,
             project: None,
             recent_projects: Vec::new(),
+            sessions: Vec::new(),
         }
     }
 }

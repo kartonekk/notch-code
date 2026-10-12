@@ -244,6 +244,17 @@ export const FlameIcon = () => (
     <path d="M12 22c4 0 7-2.7 7-6.8 0-3.3-2-5.6-3.6-7.4-.4 1.9-1.4 3-2.6 3.4.5-3.4-.9-6.4-3.8-9.2-.2 3.6-2.3 5.7-3.8 7.6C4 11.1 5 14.3 5 15.2 5 19.3 8 22 12 22z" />
   </svg>
 );
+export const CopyIcon = () => (
+  <svg {...small}>
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+  </svg>
+);
+export const RetryIcon = () => (
+  <svg {...small} width={11} height={11}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />
+  </svg>
+);
 export const AlertIcon = () => (
   <svg {...small}>
     <path d="M12 3l10 18H2zM12 10v5M12 18v.5" />

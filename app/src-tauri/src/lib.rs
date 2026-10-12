@@ -32,8 +32,8 @@ use transcript::TranscriptFile;
 /// Width of the inverted "ear" corners drawn on both sides of the notch (CSS --ear).
 const EAR: f64 = 12.0;
 /// Window size in logical pixels: the expanded panel (EXPANDED in App.tsx) + ears.
-const WINDOW_W: f64 = 620.0 + EAR * 2.0;
-const WINDOW_H: f64 = 480.0;
+const WINDOW_W: f64 = 680.0 + EAR * 2.0;
+const WINDOW_H: f64 = 500.0;
 
 #[derive(Clone, Debug, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -396,7 +396,7 @@ fn open_folder(app: &AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn quit_app(app: AppHandle) {
-    agent::agent_stop(app.clone());
+    agent::stop_all(&app);
     let _ = stop_recording(app.clone(), None).await;
     app.exit(0);
 }
@@ -462,12 +462,14 @@ pub fn run() {
             update::update_check,
             update::update_install,
             agent::agent_status,
+            agent::agent_open,
+            agent::agent_close,
             agent::agent_send,
             agent::agent_stop,
             agent::agent_new,
             agent::agent_set_project,
-            agent::agent_pick_project,
-            agent::agent_open_project,
+            agent::agent_pick_folder,
+            agent::agent_open_folder,
             review::review_status,
             review::review_accept,
             review::review_reject,
