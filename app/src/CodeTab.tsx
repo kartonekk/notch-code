@@ -13,7 +13,6 @@ import {
   CopyIcon,
   CrossIcon,
   FlameIcon,
-  FolderIcon,
   formatDuration,
   ImageIcon,
   formatSpan,
@@ -738,41 +737,9 @@ function KeyHints() {
       <span>
         <kbd>Ctrl</kbd>+<kbd>T</kbd> new session
       </span>
-    </div>
-  );
-}
-
-/** No session open yet: pick a folder (recent ones are one click). */
-export function Welcome({ agents, onOpen }: { agents: Agents; onOpen: (path: string) => void }) {
-  const [picking, setPicking] = useState(false);
-  return (
-    <div className="empty-state">
-      <FolderIcon size={22} />
-      <p className="empty-title">Choose the folder Claude should work in.</p>
-      {agents.recent.length > 0 && (
-        <div className="recent-list">
-          {agents.recent.slice(0, 4).map((p) => (
-            <button key={p} className="recent" title={p} onClick={() => onOpen(p)}>
-              <FolderIcon size={13} />
-              <span className="recent-name">{basename(p)}</span>
-              <span className="recent-path">{p}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <button
-        className="btn btn-accent"
-        disabled={picking}
-        onClick={async () => {
-          setPicking(true);
-          const path = await agents.pickFolder(null);
-          setPicking(false);
-          if (path) onOpen(path);
-        }}
-      >
-        {picking ? "Choosing…" : "Choose folder"}
-      </button>
-      {agents.error && <p className="error-text">{agents.error}</p>}
+      <span>
+        <kbd>Ctrl</kbd>+<kbd>`</kbd> terminal
+      </span>
     </div>
   );
 }

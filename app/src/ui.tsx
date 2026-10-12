@@ -62,10 +62,6 @@ export function IconButton(props: { title: string; onClick: () => void; active?:
   );
 }
 
-export function StatusDot({ phase }: { phase: string }) {
-  return <span className={`dot dot-${phase}`} />;
-}
-
 export function Bars({ level }: { level: number }) {
   const l = Math.min(1, Math.sqrt(level) * 1.6);
   const weights = [0.55, 0.85, 1, 0.75, 0.5];
@@ -201,6 +197,12 @@ export const KeyIcon = () => (
 export const DownloadIcon = () => (
   <svg {...small}>
     <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+  </svg>
+);
+export const TerminalIcon = () => (
+  <svg {...small}>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="M6 9l3 3-3 3M12 15h5" />
   </svg>
 );
 export const CodeIcon = () => (

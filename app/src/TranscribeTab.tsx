@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, AppStatus, AudioSource, Levels, on, Segment } from "./api";
-import { formatDuration, Meter, PauseIcon, PlayIcon, store } from "./ui";
+import { Hum } from "./Hum";
+import { CheckIcon, FolderIcon, formatDuration, IconButton, Meter, PauseIcon, PlayIcon, store } from "./ui";
 
 export const SPEAKER_LABEL = { me: "Me", others: "Others" } as const;
 
@@ -129,28 +130,58 @@ export function useTranscription(status: AppStatus | null, pickerVisible: boolea
 
 export type Transcription = ReturnType<typeof useTranscription>;
 
+/** keys typed into a text field are not shortcuts */
+const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+
 export function TranscribeTab({ t, status }: { t: Transcription; status: AppStatus | null }) {
   if (t.phase === "preparing") return <Preparing status={status} />;
   if (t.phase === "error") {
     return (
       <div className="empty-state">
+        <Hum mood="error" size={96} />
+        <p className="empty-title">The speech model couldn't start</p>
         <p className="error-text">{status?.message}</p>
-        <button className="btn" onClick={() => api.retrySetup()}>
+        <button className="btn btn-accent" onClick={() => api.retrySetup()}>
           Try again
         </button>
       </div>
     );
   }
-  return t.recording ? <Live t={t} /> : <Picker t={t} />;
+  return t.recording ? <Live t={t} status={status} /> : <Picker t={t} status={status} />;
 }
 
-function Picker({ t }: { t: Transcription }) {
+/**
+ * Before recording: the apps playing audio right now (the meeting app is picked
+ * already), the microphone switch, and one big Start. Enter starts too.
+ */
+function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
+  const selected = t.sources.find((s) => s.pid === t.selectedPid) ?? null;
+  const start = useRef(t.start);
+  start.current = t.start;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && !typing(e)) {
+        e.preventDefault();
+        start.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
-    <div className="picker">
-      <div className="section-label">Record audio from</div>
+    <div className="rec-setup">
+      <header className="card-head">
+        <span className="card-title">Record audio from</span>
+        {status?.backend && <span className="chip">{status.backend}</span>}
+        <IconButton title="Transcripts folder" onClick={() => api.openFolder().catch(() => {})}>
+          <FolderIcon />
+        </IconButton>
+      </header>
       <div className="source-list">
         {t.sources.length === 0 && (
           <div className="empty">
+            <Hum mood="sleep" size={64} />
             No apps are playing audio.
             <br />
             Join a meeting (Webex, Teams, Zoom…) and it shows up here.
@@ -160,12 +191,14 @@ function Picker({ t }: { t: Transcription }) {
           <button
             key={s.pid}
             className={`source ${t.selectedPid === s.pid ? "is-selected" : ""}`}
+            title="Click to choose, double-click to start"
             onClick={() => t.setSelectedPid(s.pid)}
             onDoubleClick={() => {
               t.setSelectedPid(s.pid);
               t.start();
             }}
           >
+            <span className="source-check">{t.selectedPid === s.pid && <CheckIcon />}</span>
             <span className="source-name">
               {s.name}
               {s.suggested && <span className="chip chip-accent">meeting</span>}
@@ -176,13 +209,15 @@ function Picker({ t }: { t: Transcription }) {
         ))}
       </div>
       <div className="picker-foot">
-        <label className="toggle">
+        <label className="toggle" title="Your own voice, labelled “Me” in the transcript">
           <input type="checkbox" checked={t.includeMic} onChange={(e) => t.setIncludeMic(e.target.checked)} />
           <span className="switch" />
           Also my microphone
         </label>
-        <button className="btn btn-record" disabled={t.selectedPid === null} onClick={t.start}>
-          <span className="rec-dot" /> Start transcribing
+        <button className="btn btn-record btn-big" disabled={selected === null} onClick={t.start}>
+          <span className="rec-dot" />
+          <span className="btn-big-text">{selected ? `Start transcribing ${selected.name}` : "Pick an app to record"}</span>
+          {selected && <kbd>Enter</kbd>}
         </button>
       </div>
       {t.error && <p className="error-text">{t.error}</p>}
@@ -190,7 +225,12 @@ function Picker({ t }: { t: Transcription }) {
   );
 }
 
-function Live({ t }: { t: Transcription }) {
+/**
+ * While recording: what's being recorded, how loud, how long, and the three
+ * things you do (look at the file, pause, end) on top; the transcript below.
+ * Space pauses or resumes.
+ */
+function Live({ t, status }: { t: Transcription; status: AppStatus | null }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [scrolledUp, setScrolledUp] = useState(false);
@@ -205,8 +245,78 @@ function Live({ t }: { t: Transcription }) {
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [t.segments]);
 
+  const pause = useRef(t.togglePause);
+  pause.current = t.togglePause;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === " " && !typing(e)) {
+        e.preventDefault();
+        pause.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const level = t.paused ? 0 : Math.max(t.levels.app, t.levels.mic);
   return (
     <div className="live">
+      {t.ending ? (
+        <form
+          className="live-head live-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            t.finish();
+          }}
+        >
+          <Hum mood="happy" size={52} />
+          <input
+            className="text-input"
+            autoFocus
+            placeholder="What was the meeting about? (file name, optional)"
+            value={t.subject}
+            maxLength={80}
+            disabled={t.busy}
+            onChange={(e) => t.setSubject(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && t.setEnding(false)}
+          />
+          <button type="button" className="btn btn-ghost" disabled={t.busy} onClick={() => t.setEnding(false)}>
+            Keep recording
+          </button>
+          <button type="submit" className="btn btn-stop" disabled={t.busy}>
+            {t.busy ? "Saving…" : "Save"}
+          </button>
+        </form>
+      ) : (
+        <div className="live-head">
+          <Hum mood={t.paused ? "paused" : "listen"} level={level} size={52} />
+          <div className="live-meta">
+            <span className="live-source" title={status?.source ?? undefined}>
+              {t.paused ? "Paused" : "Recording"} {status?.source && <span className="muted">· {status.source}</span>}
+            </span>
+            <span className="levels">
+              <span>App</span>
+              <Meter level={t.paused ? 0 : t.levels.app} />
+              {t.includeMic && (
+                <>
+                  <span>Mic</span>
+                  <Meter level={t.paused ? 0 : t.levels.mic} />
+                </>
+              )}
+            </span>
+          </div>
+          <span className={`timer big ${t.paused ? "is-paused" : ""}`}>{t.elapsed}</span>
+          <IconButton title="Open the transcript file" onClick={() => api.openTranscript()}>
+            <FolderIcon />
+          </IconButton>
+          <button className="btn" title={`${t.paused ? "Resume" : "Pause"} (Space)`} onClick={t.togglePause}>
+            {t.paused ? <PlayIcon /> : <PauseIcon />} {t.paused ? "Resume" : "Pause"}
+          </button>
+          <button className="btn btn-stop" title="Stop and save the transcript" onClick={() => t.setEnding(true)}>
+            <span className="stop-sq" /> End
+          </button>
+        </div>
+      )}
       <div
         className="transcript"
         ref={ref}
@@ -226,7 +336,7 @@ function Live({ t }: { t: Transcription }) {
           </div>
         ))}
       </div>
-      {scrolledUp && !t.ending && (
+      {scrolledUp && (
         <button
           className="jump-latest"
           onClick={() => {
@@ -238,55 +348,6 @@ function Live({ t }: { t: Transcription }) {
           ↓ Latest
         </button>
       )}
-      {t.ending ? (
-        <form
-          className="live-foot"
-          onSubmit={(e) => {
-            e.preventDefault();
-            t.finish();
-          }}
-        >
-          <input
-            className="text-input"
-            autoFocus
-            placeholder="Meeting topic (file name) — optional"
-            value={t.subject}
-            maxLength={80}
-            disabled={t.busy}
-            onChange={(e) => t.setSubject(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && t.setEnding(false)}
-          />
-          <button type="button" className="btn btn-ghost" disabled={t.busy} onClick={() => t.setEnding(false)}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-stop" disabled={t.busy}>
-            {t.busy ? "Saving…" : "Save"}
-          </button>
-        </form>
-      ) : (
-        <footer className="live-foot">
-          <div className="levels">
-            <span>App</span>
-            <Meter level={t.paused ? 0 : t.levels.app} />
-            {t.includeMic && (
-              <>
-                <span>Mic</span>
-                <Meter level={t.paused ? 0 : t.levels.mic} />
-              </>
-            )}
-          </div>
-          <span className={`timer big ${t.paused ? "is-paused" : ""}`}>{t.paused ? "Paused" : t.elapsed}</span>
-          <button className="btn btn-ghost" title="Open the transcript file" onClick={() => api.openTranscript()}>
-            Open file
-          </button>
-          <button className="btn" onClick={t.togglePause}>
-            {t.paused ? <PlayIcon /> : <PauseIcon />} {t.paused ? "Resume" : "Pause"}
-          </button>
-          <button className="btn btn-stop" onClick={() => t.setEnding(true)}>
-            <span className="stop-sq" /> End
-          </button>
-        </footer>
-      )}
       {t.error && <p className="error-text">{t.error}</p>}
     </div>
   );
@@ -296,8 +357,8 @@ function Preparing({ status }: { status: AppStatus | null }) {
   const p = status?.progress;
   return (
     <div className="empty-state">
-      <div className="spinner" />
-      <p>{status?.message ?? "Preparing…"}</p>
+      <Hum mood="work" size={96} />
+      <p className="empty-title">{status?.message ?? "Preparing…"}</p>
       {p != null && (
         <div className="progress">
           <div className="progress-fill" style={{ width: `${Math.round(p * 100)}%` }} />

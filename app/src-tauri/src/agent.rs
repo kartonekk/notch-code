@@ -24,7 +24,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::config::Config;
-use crate::{claude, paths, review};
+use crate::{claude, paths, review, terminal};
 
 const MAX_RECENT: usize = 8;
 const MAX_SESSIONS: usize = 9;
@@ -427,6 +427,21 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
     }
     if !allow.is_empty() {
         cmd.arg("--allowedTools").args(allow);
+    }
+    // notch-terminal: lets Claude open a window the user can see
+    match terminal::shim_dir() {
+        Ok(bin) => {
+            let mut path = std::ffi::OsString::from(bin);
+            if let Some(old) = std::env::var_os("PATH") {
+                path.push(";");
+                path.push(old);
+            }
+            cmd.env("PATH", path).arg("--append-system-prompt").arg(terminal::PROMPT);
+            if let Ok(exe) = std::env::current_exe() {
+                cmd.env(terminal::EXE_ENV, exe);
+            }
+        }
+        Err(e) => paths::log(format!("notch-terminal unavailable: {e}")),
     }
     cmd.current_dir(&project).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]

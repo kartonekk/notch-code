@@ -197,6 +197,8 @@ export const api = {
   /** system folder picker */
   agentPickFolder: (current: string | null) => invoke<string | null>("agent_pick_folder", { current }),
   agentOpenFolder: (path: string) => invoke<void>("agent_open_folder", { path }),
+  /** a cmd window in that folder */
+  openTerminal: (path: string) => invoke<void>("open_terminal", { path }),
   /** saves a pasted image for Claude; returns its path */
   agentSaveImage: (bytes: Uint8Array, ext: string) => invoke<string>("agent_save_image", bytes, { headers: { "x-ext": ext } }),
   /** system file picker for images */

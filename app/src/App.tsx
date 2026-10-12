@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { api, AppStatus, ClaudeStatus, Limit, on, SessionStatus, UpdateStatus } from "./api";
-import { Agents, AgentNotice, CodeTab, stepTime, useAgents, Welcome } from "./CodeTab";
+import { Agents, AgentNotice, CodeTab, stepTime, useAgents } from "./CodeTab";
+import { Home, hue } from "./Home";
+import { Mood, Hum, toneMood } from "./Hum";
 import { useVoice, voiceLine } from "./Voice";
 import { Embers } from "./Reckless";
 import { PILL_STEP, PILL_WIDTH, ReviewPills, useReview } from "./Review";
 import { SPEAKER_LABEL, TranscribeTab, useTranscription } from "./TranscribeTab";
 import {
   AlertIcon,
-  Bars,
   basename,
   capitalize,
   CheckIcon,
@@ -24,10 +25,11 @@ import {
   PinIcon,
   PlusIcon,
   PowerIcon,
-  StatusDot,
   store,
+  TerminalIcon,
   MicOffIcon,
   UpdateBanner,
+  Bars,
 } from "./ui";
 import "./notch.css";
 
@@ -41,8 +43,8 @@ const ANIM_MS = 260;
 /** "Later" on the Claude sign-in reminder hides it for this long */
 const CLAUDE_SNOOZE_MS = 60 * 60 * 1000;
 
-/** what the panel shows: a Claude session (by id) or the transcriber */
-type View = number | "transcribe";
+/** what the panel shows: the overview, a Claude session (by id) or the transcriber */
+export type View = "home" | number | "transcribe";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -71,22 +73,21 @@ export default function App() {
   const setView = (v: View) => {
     setViewState(v);
     // remembered by folder: session ids change between launches
-    store.set("view", v === "transcribe" ? "transcribe" : (agents.session(v)?.project ?? ""));
+    store.set("view", typeof v === "number" ? (agents.session(v)?.project ?? "") : v);
   };
   // first load, and when the shown session gets closed: fall back to something that exists
   useEffect(() => {
     if (!agents.status) return;
-    if (view === "transcribe" || (view != null && sessions.some((s) => s.id === view))) return;
-    const saved = store.get("view");
-    if (view == null && saved === "transcribe") {
-      setViewState("transcribe");
-      return;
+    if (view === "home" || view === "transcribe" || (view != null && sessions.some((s) => s.id === view))) return;
+    if (view == null) {
+      const saved = store.get("view");
+      if (saved === "transcribe" || saved === "home") return setViewState(saved);
+      const match = sessions.find((s) => s.project === saved);
+      if (match) return setViewState(match.id);
     }
-    const match = sessions.find((s) => s.project === saved) ?? sessions[0];
-    setViewState(match ? match.id : null);
+    setViewState("home");
   }, [agents.status, view, sessions]);
   const current: SessionStatus | null = typeof view === "number" ? agents.session(view) : null;
-  const codeView = view !== "transcribe";
 
   const openSession = async (path: string) => {
     const existing = sessions.find((s) => s.project.toLowerCase() === path.toLowerCase());
@@ -96,6 +97,11 @@ export default function App() {
       setViewState(sid);
       store.set("view", path);
     }
+  };
+  const [termError, setTermError] = useState<string | null>(null);
+  const openTerminal = (path: string) => {
+    setTermError(null);
+    api.openTerminal(path).catch((e) => setTermError(String(e)));
   };
   const [picking, setPicking] = useState(false);
   const pickAndOpen = async () => {
@@ -241,14 +247,17 @@ export default function App() {
   }, [shell, expanded, hitWidth, hitHeight]);
 
   // ---- keyboard ---------------------------------------------------------------
+  const order: View[] = ["home", "transcribe", ...sessions.map((s) => s.id)];
   const keys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   keys.current = (e) => {
     const n = Number(e.key);
+    const k = e.key.toLowerCase();
     if (e.ctrlKey && n >= 1 && n <= 9 && sessions[n - 1]) setView(sessions[n - 1].id);
-    else if (e.ctrlKey && e.key.toLowerCase() === "m") setView("transcribe");
-    else if (e.ctrlKey && e.key.toLowerCase() === "t") pickAndOpen();
+    else if (e.ctrlKey && k === "h") setView("home");
+    else if (e.ctrlKey && k === "m") setView("transcribe");
+    else if (e.ctrlKey && k === "t") pickAndOpen();
+    else if (e.ctrlKey && e.code === "Backquote" && current) openTerminal(current.project);
     else if (e.ctrlKey && e.key === "Tab") {
-      const order: View[] = [...sessions.map((s) => s.id), "transcribe"];
       const i = view == null ? -1 : order.indexOf(view);
       setView(order[(i + (e.shiftKey ? order.length - 1 : 1)) % order.length]);
     } else if (e.key === "Escape" && !pinned && !rec.ending) collapse();
@@ -281,7 +290,8 @@ export default function App() {
     : "";
   const busyElapsed = busy?.started_at ? formatDuration(now - busy.started_at) : "";
   const busyStep = busy ? stepTime(busy, now) : "";
-  // when nothing is going on the notch stays empty; only things that need you show up
+  const level = recording && !paused ? Math.max(rec.levels.app, rec.levels.mic) : 0;
+  // when nothing is going on the bar holds just a sleeping Hum; only things that need you show up
   const idleMessage =
     phase === "preparing" && status?.progress != null
       ? `Downloading speech model ${Math.round(status.progress * 100)}%`
@@ -294,6 +304,29 @@ export default function App() {
           : phase === "error"
             ? "Speech model error — hover"
             : null;
+  const mood: Mood = voice.active
+    ? "voice"
+    : flash
+      ? toneMood(flash.tone)
+      : recording
+        ? paused
+          ? "paused"
+          : "listen"
+        : working
+          ? reckless
+            ? "fire"
+            : "work"
+          : finished && notice
+            ? toneMood(notice.tone)
+            : phase === "error" || limitHit
+              ? "error"
+              : claudeAlert
+                ? "warn"
+                : phase === "preparing"
+                  ? "work"
+                  : expanded
+                    ? "idle"
+                    : "sleep";
 
   return (
     <div className="stage">
@@ -319,15 +352,9 @@ export default function App() {
         <div className="notch-clip">
           {/* ---------- collapsed bar ---------- */}
           <div className="bar" onPointerEnter={() => !expanded && onEnter()}>
+            <Hum mood={mood} size={40} level={level} className="bar-hum" />
             {voice.active ? (
-              <>
-                <span className="voice-wave" aria-hidden>
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span className={`ticker ${voice.phase === "hearing" && voice.text ? "" : "muted"}`}>{voiceLine(voice)}</span>
-              </>
+              <span className={`ticker ${voice.phase === "hearing" && voice.text ? "" : "muted"}`}>{voiceLine(voice)}</span>
             ) : flash ? (
               <>
                 <span className={`notice-icon is-${flash.tone}`}>
@@ -337,22 +364,18 @@ export default function App() {
               </>
             ) : working && recording ? (
               <>
-                <StatusDot phase={paused ? "paused" : "recording"} />
                 <span className={`timer ${paused ? "is-paused" : ""}`}>{rec.elapsed}</span>
-                <span className="mini-spinner agent-spin" />
                 <span className="ticker">{busyText}</span>
                 {busyStep && <span className="bar-step-time">{busyStep}</span>}
               </>
             ) : working ? (
               <>
-                <span className="mini-spinner agent-spin" />
                 <span className="ticker">{busyText}</span>
                 {busyStep && <span className="bar-step-time">{busyStep}</span>}
                 <span className="bar-time">{busyElapsed}</span>
               </>
             ) : recording ? (
               <>
-                <StatusDot phase={paused ? "paused" : "recording"} />
                 <span className={`timer ${paused ? "is-paused" : ""}`}>{rec.elapsed}</span>
                 <span className="ticker">
                   {paused ? (
@@ -365,27 +388,21 @@ export default function App() {
                     <span className="muted">Listening…</span>
                   )}
                 </span>
-                <Bars level={paused ? 0 : Math.max(rec.levels.app, rec.levels.mic)} />
+                <Bars level={level} />
               </>
             ) : finished && notice ? (
               <>
-                <span className={`notice-icon is-${notice.tone}`}>
-                  {notice.tone === "ok" ? <CheckIcon /> : notice.tone === "warn" ? <AlertIcon /> : <CrossIcon />}
-                </span>
                 <span className="ticker">{notice.text}</span>
                 <span className="bar-hint">hover to see</span>
               </>
             ) : idleMessage ? (
               <>
-                <span className="bar-lead">
-                  <StatusDot phase={claudeAlert || limitHit ? "error" : phase} />
-                  {claudeAlert && (
-                    <span className="claude-alert" title={claude?.message ?? "Claude needs attention"}>
-                      <KeyIcon />
-                    </span>
-                  )}
-                </span>
                 <span className="bar-label">{idleMessage}</span>
+                {claudeAlert && (
+                  <span className="claude-alert" title={claude?.message ?? "Claude needs attention"}>
+                    <KeyIcon />
+                  </span>
+                )}
               </>
             ) : null}
           </div>
@@ -394,78 +411,92 @@ export default function App() {
           {shell && (
             <div className="panel" onClick={(e) => e.stopPropagation()}>
               {reckless && <Embers fast={working} />}
-              <Rail
-                agents={agents}
-                view={view}
-                recording={recording}
-                paused={paused}
-                picking={picking}
-                onView={setView}
-                onOpen={openSession}
-                onPick={pickAndOpen}
-                onHold={setHold}
-              />
-              <div className="main">
-                <header className="panel-head">
-                  {codeView && current ? (
-                    <ProjectMenu agents={agents} session={current} onPick={pickAndOpen} onHold={setHold} />
-                  ) : (
-                    <span className="view-title">{codeView ? "Claude Code" : "Transcribe"}</span>
-                  )}
-                  {codeView && current && (
-                    <button
-                      className="new-chat"
-                      title="New conversation (Ctrl+N)"
-                      disabled={current.running || agents.feed(current.id).length === 0}
-                      onClick={() => agents.newChat(current.id)}
-                    >
-                      <PlusIcon /> New chat
-                    </button>
-                  )}
-                  <div className="head-actions">
-                    {codeView && claude?.state === "signed_in" && <LimitChip plan={claude.plan} limit={agents.limit} />}
-                    {!codeView && status?.backend && <span className="chip">{status.backend}</span>}
-                    {!codeView && (
-                      <IconButton title="Transcripts folder" onClick={() => api.openFolder().catch(() => {})}>
-                        <FolderIcon />
-                      </IconButton>
-                    )}
-                    <IconButton
-                      title={
-                        voice.wake
-                          ? "Voice on: say “Claude, …” or use the mic button; sent when you stop talking. Click to turn off"
-                          : "Voice off: the microphone stays closed. Click to turn on"
-                      }
-                      active={voice.wake}
-                      onClick={() => voice.setWake(!voice.wake)}
-                    >
-                      {voice.wake ? <MicIcon /> : <MicOffIcon />}
-                    </IconButton>
-                    <IconButton title={pinned ? "Unpin" : "Keep open"} active={pinned} onClick={() => setPinned(!pinned)}>
-                      <PinIcon />
-                    </IconButton>
-                    <IconButton title="Quit Notch Code" onClick={() => api.quit()}>
-                      <PowerIcon />
-                    </IconButton>
-                  </div>
-                </header>
-
-                {showClaudeBanner && claude && (
-                  <ClaudeBanner claude={claude} onLater={() => setClaudeSnoozedUntil(Date.now() + CLAUDE_SNOOZE_MS)} />
-                )}
-                {showUpdate && update && (
-                  <UpdateBanner update={update} recording={recording} onLater={() => setSkippedBuild(update.available)} />
-                )}
-
-                <div className="tab-body">
-                  {!codeView ? (
-                    <TranscribeTab t={rec} status={status} />
-                  ) : current ? (
-                    <CodeTab key={current.id} agents={agents} session={current} voice={voice} onHold={setHold} />
-                  ) : (
-                    <Welcome agents={agents} onOpen={openSession} />
-                  )}
+              <header className="topbar">
+                <Tabs
+                  agents={agents}
+                  view={view}
+                  mood={mood}
+                  level={level}
+                  recording={recording}
+                  paused={paused}
+                  elapsed={rec.elapsed}
+                  picking={picking}
+                  onView={setView}
+                  onOpen={openSession}
+                  onPick={pickAndOpen}
+                  onHold={setHold}
+                />
+                <div className="head-actions">
+                  {claude?.state === "signed_in" && <LimitChip plan={claude.plan} limit={agents.limit} />}
+                  <IconButton
+                    title={
+                      voice.wake
+                        ? "Voice on: say “Claude, …” or use the mic button; sent when you stop talking. Click to turn off"
+                        : "Voice off: the microphone stays closed. Click to turn on"
+                    }
+                    active={voice.wake}
+                    onClick={() => voice.setWake(!voice.wake)}
+                  >
+                    {voice.wake ? <MicIcon /> : <MicOffIcon />}
+                  </IconButton>
+                  <IconButton title={pinned ? "Unpin" : "Keep open"} active={pinned} onClick={() => setPinned(!pinned)}>
+                    <PinIcon />
+                  </IconButton>
+                  <IconButton title="Quit Notch Code" onClick={() => api.quit()}>
+                    <PowerIcon />
+                  </IconButton>
                 </div>
+              </header>
+
+              {showClaudeBanner && claude && (
+                <ClaudeBanner claude={claude} onLater={() => setClaudeSnoozedUntil(Date.now() + CLAUDE_SNOOZE_MS)} />
+              )}
+              {showUpdate && update && (
+                <UpdateBanner update={update} recording={recording} onLater={() => setSkippedBuild(update.available)} />
+              )}
+
+              <div className="view" key={String(view)}>
+                {view === "transcribe" ? (
+                  <section className="card">
+                    <TranscribeTab t={rec} status={status} />
+                  </section>
+                ) : current ? (
+                  <section className="card">
+                    <header className="card-head">
+                      <ProjectMenu agents={agents} session={current} onPick={pickAndOpen} onHold={setHold} onTerminal={openTerminal} />
+                      <button
+                        className="new-chat"
+                        title={"Open a terminal in this folder (Ctrl+`)\nClaude can open one too, for dev servers and watchers"}
+                        onClick={() => openTerminal(current.project)}
+                      >
+                        <TerminalIcon /> Terminal
+                      </button>
+                      <button
+                        className="new-chat"
+                        title="New conversation (Ctrl+N)"
+                        disabled={current.running || agents.feed(current.id).length === 0}
+                        onClick={() => agents.newChat(current.id)}
+                      >
+                        <PlusIcon /> New chat
+                      </button>
+                    </header>
+                    {termError && <p className="error-text">{termError}</p>}
+                    <CodeTab key={current.id} agents={agents} session={current} voice={voice} onHold={setHold} />
+                  </section>
+                ) : (
+                  <Home
+                    mood={mood}
+                    level={level}
+                    rec={rec}
+                    status={status}
+                    agents={agents}
+                    now={now}
+                    picking={picking}
+                    onView={setView}
+                    onOpen={openSession}
+                    onPick={pickAndOpen}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -488,28 +519,18 @@ function clock(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-/** two letters for a folder, e.g. "notch-transcript" -> "NT" */
-function initials(path: string) {
-  const words = basename(path).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const s = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? "?").slice(0, 2);
-  return s.toUpperCase();
-}
-
-function hue(path: string) {
-  let h = 0;
-  for (const c of path.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
-
 /**
- * The left edge of the panel: one button per Claude session (its state at a
- * glance), + for another folder, and the microphone for transcription.
+ * The top of the panel: Hum (the overview), the transcriber, one tab per Claude
+ * session (its state at a glance), and + for another folder.
  */
-function Rail({
+function Tabs({
   agents,
   view,
+  mood,
+  level,
   recording,
   paused,
+  elapsed,
   picking,
   onView,
   onOpen,
@@ -518,8 +539,11 @@ function Rail({
 }: {
   agents: Agents;
   view: View | null;
+  mood: Mood;
+  level: number;
   recording: boolean;
   paused: boolean;
+  elapsed: string;
   picking: boolean;
   onView: (v: View) => void;
   onOpen: (path: string) => void;
@@ -531,24 +555,39 @@ function Rail({
   const openPaths = new Set(agents.sessions.map((s) => s.project.toLowerCase()));
   const recent = agents.recent.filter((p) => !openPaths.has(p.toLowerCase()));
   return (
-    <nav className="rail">
+    <nav className="tabs">
+      <button className={`tab tab-home ${view === "home" ? "is-active" : ""}`} title="Overview (Ctrl+H)" onClick={() => onView("home")}>
+        <Hum mood={mood} size={30} level={level} />
+      </button>
+
+      <button
+        className={`tab tab-rec ${view === "transcribe" ? "is-active" : ""} ${recording ? (paused ? "is-paused" : "is-recording") : ""}`}
+        title="Transcribe (Ctrl+M)"
+        onClick={() => onView("transcribe")}
+      >
+        {recording ? <span className="tab-rec-dot" /> : <MicIcon />}
+        {recording ? <span className="tab-timer">{elapsed}</span> : "Transcribe"}
+      </button>
+
+      <span className="tabs-sep" />
+
       {agents.sessions.map((s, i) => {
         const tone = agents.unseen[s.id];
         const queued = agents.queue(s.id).length;
         return (
-          <div key={s.id} className="rail-slot">
+          <div key={s.id} className="tab-slot">
             <button
-              className={`rail-btn session ${view === s.id ? "is-active" : ""} ${s.running ? "is-running" : ""}`}
+              className={`tab tab-session ${view === s.id ? "is-active" : ""} ${s.running ? "is-running" : ""}`}
               style={{ "--h": hue(s.project) } as CSSProperties}
               title={`${basename(s.project)}${s.running ? ` — ${s.current ?? "working"}` : ""}\n${s.project}\nCtrl+${i + 1}`}
               onClick={() => onView(s.id)}
             >
-              {initials(s.project)}
-              {tone && !s.running && <span className={`rail-badge is-${tone}`} />}
-              {queued > 0 && <span className="rail-count">{queued}</span>}
+              <Hum mood={s.running ? (agents.mode === "reckless" ? "fire" : "work") : tone ? toneMood(tone) : "idle"} hue={hue(s.project)} size={24} />
+              <span className="tab-name">{basename(s.project)}</span>
+              {queued > 0 && <span className="tab-count">{queued}</span>}
             </button>
             <button
-              className="rail-close"
+              className="tab-x"
               title={s.running ? "Stop Claude and close this session" : "Close this session"}
               onClick={() => agents.close(s.id)}
             >
@@ -558,19 +597,20 @@ function Rail({
         );
       })}
 
-      <div className="rail-add">
+      <div className="tab-add">
         <button
-          className={`rail-btn add ${adding ? "is-open" : ""}`}
-          title="New session in another folder (Ctrl+T)"
+          className={`tab tab-plus ${adding ? "is-active" : ""}`}
+          title="New Claude session in a folder (Ctrl+T)"
           disabled={picking || agents.sessions.length >= 9}
           onClick={() => (recent.length ? setAdding(!adding) : onPick())}
         >
           <PlusIcon />
+          {agents.sessions.length === 0 && "Claude"}
         </button>
         {adding && (
           <>
             <div className="menu-scrim" onClick={() => setAdding(false)} />
-            <div className="menu menu-side" role="menu">
+            <div className="menu menu-down" role="menu">
               {recent.map((p) => (
                 <button
                   key={p}
@@ -600,22 +640,24 @@ function Rail({
           </>
         )}
       </div>
-
-      <div className="rail-spacer" />
-
-      <button
-        className={`rail-btn mic ${view === "transcribe" ? "is-active" : ""} ${recording ? (paused ? "is-paused" : "is-recording") : ""}`}
-        title="Transcribe (Ctrl+M)"
-        onClick={() => onView("transcribe")}
-      >
-        <MicIcon />
-      </button>
     </nav>
   );
 }
 
-/** The session's folder: open it, move the session, start another, close it. */
-function ProjectMenu({ agents, session, onPick, onHold }: { agents: Agents; session: SessionStatus; onPick: () => void; onHold: (hold: boolean) => void }) {
+/** The session's folder: open it (Explorer, terminal), move the session, start another, close it. */
+function ProjectMenu({
+  agents,
+  session,
+  onPick,
+  onHold,
+  onTerminal,
+}: {
+  agents: Agents;
+  session: SessionStatus;
+  onPick: () => void;
+  onHold: (hold: boolean) => void;
+  onTerminal: (path: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   useEffect(() => onHold(open), [open, onHold]);
   const others = agents.recent.filter((p) => p.toLowerCase() !== session.project.toLowerCase());
@@ -644,6 +686,16 @@ function ProjectMenu({ agents, session, onPick, onHold }: { agents: Agents; sess
             >
               <span className="menu-title">Open in Explorer</span>
               <span className="menu-sub">{session.project}</span>
+            </button>
+            <button
+              className="menu-item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onTerminal(session.project);
+              }}
+            >
+              <span className="menu-title">Open terminal here (Ctrl+`)</span>
             </button>
             {!session.running && others.length > 0 && <div className="menu-sep" />}
             {!session.running &&
@@ -698,23 +750,23 @@ function LimitChip({ plan, limit }: { plan: string | null; limit: Limit | null }
   const reset = current && limit!.resets_at ? clock(limit!.resets_at) : null;
   const left = used != null ? Math.max(0, Math.round((1 - used) * 100)) : null;
   const title = current
-    ? `5-hour limit: ${left != null ? `${left}% left (${Math.round(used! * 100)}% used)` : limit!.status === "rejected" ? "reached" : "usage not reported yet"}${reset ? ` · resets at ${reset}` : ""}`
-    : "5-hour limit: shown after Claude's next reply";
+    ? `Claude${plan ? ` ${capitalize(plan)}` : ""} · 5-hour limit: ${left != null ? `${left}% left (${Math.round(used! * 100)}% used)` : limit!.status === "rejected" ? "reached" : "usage not reported yet"}${reset ? ` · resets at ${reset}` : ""}`
+    : `Claude${plan ? ` ${capitalize(plan)}` : ""} · 5-hour limit: shown after Claude's next reply`;
   return (
     <span className={`chip limit-chip ${tone}`} title={title}>
-      Claude{plan ? ` · ${capitalize(plan)}` : ""}
-      {current && (
+      {current ? (
         <>
-          <span className="limit-sep" />
           5h
           {left != null && (
             <span className="limit-meter">
               <i style={{ width: `${left}%` }} />
             </span>
           )}
-          {left != null ? `${left}% left` : limit!.status === "rejected" ? "limit reached" : ""}
+          {left != null ? `${left}%` : limit!.status === "rejected" ? "limit reached" : ""}
           {reset && <span className="limit-reset">↻ {reset}</span>}
         </>
+      ) : (
+        <>Claude{plan ? ` · ${capitalize(plan)}` : ""}</>
       )}
     </span>
   );

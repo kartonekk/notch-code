@@ -1,0 +1,393 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560">
+<style>
+
+/* Hum's body keeps its colour; --lit (the ear pads) carries the mood */
+.hum {
+  --body: #ffc9a3;
+  --lit: #8d89ad;
+  --ink: #1d1626;
+  --lvl: 0;
+  --lx: 0px;
+  --ly: 0px;
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.hum-body {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: hum-breathe 3.6s ease-in-out infinite;
+}
+.hum-shape {
+  fill: var(--body);
+}
+.hum-shine {
+  fill: #fff;
+  opacity: 0.45;
+}
+.hum-band {
+  fill: none;
+  stroke: #3d3a52;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+}
+.hum-shell {
+  fill: #3d3a52;
+}
+.hum-cup {
+  fill: var(--lit);
+  transition: fill 300ms;
+}
+.hum-face {
+  transform: translate(var(--lx), var(--ly));
+  transition: transform 140ms ease-out;
+}
+.hum-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hum-blink 5.2s infinite;
+  animation-delay: var(--blink-delay, 0s);
+}
+.hum-eye,
+.hum-mouth,
+.hum-dots circle {
+  fill: var(--ink);
+}
+.hum-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hum-blush {
+  fill: #ff6f91;
+  opacity: 0.3;
+}
+.hum-smile,
+.hum-shut,
+.hum-mouth,
+.hum-dots,
+.hum-eq {
+  opacity: 0;
+  transition: opacity 200ms;
+}
+.hum-eq rect {
+  fill: var(--ink);
+}
+
+/* eyes shut (asleep, paused, upset) or ^ ^ (happy) */
+.hum-sleep .hum-eyes,
+.hum-paused .hum-eyes,
+.hum-error .hum-eyes,
+.hum-happy .hum-eyes {
+  opacity: 0;
+}
+.hum-sleep .hum-shut,
+.hum-paused .hum-shut,
+.hum-error .hum-shut,
+.hum-happy .hum-smile {
+  opacity: 1;
+}
+.hum-sleep .hum-body {
+  animation-duration: 5.5s;
+}
+.hum-sleep .hum-face {
+  transform: translateY(1px);
+}
+
+.hum-listen {
+  --lit: #ff453a;
+}
+.hum-voice {
+  --lit: #64d2ff;
+}
+.hum-paused {
+  --lit: #ffd60a;
+}
+.hum-work {
+  --lit: #0a84ff;
+}
+.hum-fire,
+.hum-warn {
+  --lit: #ff9f0a;
+}
+.hum-happy {
+  --lit: #30d158;
+}
+.hum-error {
+  --lit: #ff453a;
+}
+
+/* recording: sound bars bounce on the pads, stronger the louder the meeting */
+.hum-listen .hum-eq {
+  opacity: calc(0.35 + var(--lvl) * 0.65);
+}
+.hum-eq rect {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hum-eq 0.9s ease-in-out infinite;
+}
+.hum-eq rect:nth-child(3n + 2) {
+  animation-delay: -0.3s;
+}
+.hum-eq rect:nth-child(3n) {
+  animation-delay: -0.6s;
+}
+
+/* taking a spoken prompt: mouth open */
+.hum-voice .hum-mouth {
+  opacity: 1;
+}
+
+/* Claude working: eyes scan, a little bob, "typing" dots */
+.hum-work .hum-eyes,
+.hum-fire .hum-eyes {
+  animation: hum-scan 2.4s ease-in-out infinite;
+}
+.hum-work .hum-body,
+.hum-fire .hum-body {
+  animation: hum-bob 1.2s ease-in-out infinite;
+}
+.hum-fire .hum-body {
+  animation-duration: 0.7s;
+}
+.hum-work .hum-dots,
+.hum-fire .hum-dots {
+  opacity: 1;
+}
+.hum-dots circle {
+  transform-box: fill-box;
+  animation: hum-dot 1.2s ease-in-out infinite;
+}
+.hum-dots circle:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.hum-dots circle:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* finished well: ^ ^, blush and a few hops */
+.hum-happy .hum-blush {
+  opacity: 0.75;
+}
+.hum-happy .hum-body {
+  animation: hum-hop 0.9s var(--ease) 3;
+}
+
+.hum-warn .hum-face {
+  transform: translate(var(--lx), var(--ly)) rotate(-6deg);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.hum-error .hum-body {
+  animation: hum-shake 0.5s ease-in-out 2;
+}
+
+@keyframes hum-breathe {
+  50% {
+    transform: scale(1.02, 0.96);
+  }
+}
+@keyframes hum-blink {
+  0%,
+  94%,
+  100% {
+    transform: scaleY(1);
+  }
+  97% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes hum-eq {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes hum-scan {
+  0%,
+  100% {
+    transform: translateX(-2px);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+}
+@keyframes hum-bob {
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes hum-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-1.6px);
+  }
+}
+@keyframes hum-hop {
+  30% {
+    transform: translateY(-6px) scale(0.97, 1.04);
+  }
+  60% {
+    transform: translateY(0) scale(1.06, 0.92);
+  }
+}
+@keyframes hum-shake {
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+text { font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; }
+.hum { --ease: cubic-bezier(0.32, 0.72, 0, 1); --lvl: 0.6; }
+/* README-only: moods that play once in the app loop here */
+.loop-hop .hum-body { animation: hum-hop 1.7s var(--ease) infinite !important; }
+.loop-shake .hum-body { animation: hum-shake-loop 2.2s ease-in-out infinite !important; }
+@keyframes hum-shake-loop { 0%, 40%, 100% { transform: none; } 10%, 30% { transform: translateX(-2px); } 20% { transform: translateX(2px); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+<defs>
+  <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#2b3a5c"/><stop offset=".55" stop-color="#3a2f55"/><stop offset="1" stop-color="#1c2233"/>
+  </linearGradient>
+  <radialGradient id="peach" cx=".5" cy="1.15" r=".7"><stop offset="0" stop-color="#ffaa78" stop-opacity=".22"/><stop offset="1" stop-color="#ffaa78" stop-opacity="0"/></radialGradient>
+  <radialGradient id="red" cx=".5" cy="1.15" r=".7"><stop offset="0" stop-color="#ff453a" stop-opacity=".22"/><stop offset="1" stop-color="#ff453a" stop-opacity="0"/></radialGradient>
+  <filter id="soft" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
+</defs>
+<rect width="900" height="560" rx="18" fill="url(#wall)"/>
+<rect x="110" y="320" width="680" height="230" rx="12" fill="#0d1018" opacity=".55"/>
+<circle cx="130" cy="334" r="4" fill="#ff5f57" opacity=".6"/><circle cx="144" cy="334" r="4" fill="#febc2e" opacity=".6"/><circle cx="158" cy="334" r="4" fill="#28c840" opacity=".6"/>
+<rect x="150" y="350" width="180" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="168" y="366" width="277" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="186" y="382" width="374" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="150" y="398" width="211" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="168" y="414" width="308" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="186" y="430" width="405" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="150" y="446" width="242" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="168" y="462" width="339" height="6" rx="3" fill="#fff" opacity=".08"/><rect x="186" y="478" width="436" height="6" rx="3" fill="#fff" opacity=".08"/>
+<path d="M98.0 0 Q110.0 0 110.0 12 V472 Q110.0 500 138.0 500 H762.0 Q790.0 500 790.0 472 V12 Q790.0 0 802.0 0 Z" fill="#000"/>
+<g transform="translate(131.0 14.5) scale(0.4688)">
+<g class="hum hum-idle ">
+  <g class="hum-body">
+    <path class="hum-band" d="M7.75 21 C7.75 3.5 56.25 3.5 56.25 21"/>
+    <rect class="hum-shape" x="9" y="13" width="46" height="29" rx="14.5"/>
+    <ellipse class="hum-shine" cx="19" cy="18" rx="5" ry="2.2" transform="rotate(-16 19 18)"/>
+    <rect class="hum-shell" x="3" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-shell" x="51.5" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-cup" x="4.6" y="22" width="6.3" height="12" rx="3.15"/>
+    <rect class="hum-cup" x="53.1" y="22" width="6.3" height="12" rx="3.15"/>
+    <g class="hum-eq"><rect x="5.5" y="25" width="1.2" height="6" rx="0.6"/><rect x="7.15" y="25" width="1.2" height="6" rx="0.6"/><rect x="8.8" y="25" width="1.2" height="6" rx="0.6"/><rect x="54" y="25" width="1.2" height="6" rx="0.6"/><rect x="55.65" y="25" width="1.2" height="6" rx="0.6"/><rect x="57.3" y="25" width="1.2" height="6" rx="0.6"/></g>
+    <g class="hum-face"><g>
+      <g class="hum-eyes">
+        <rect class="hum-eye" x="23" y="24" width="4.4" height="7" rx="2.2"/>
+        <rect class="hum-eye" x="36.6" y="24" width="4.4" height="7" rx="2.2"/>
+      </g>
+      <path class="hum-line hum-smile" d="M22.8 28.5 q2.4 -3.6 4.8 0 M36.4 28.5 q2.4 -3.6 4.8 0"/>
+      <path class="hum-line hum-shut" d="M23 27.5 h4.4 M36.6 27.5 h4.4"/>
+      <ellipse class="hum-mouth" cx="32" cy="35" rx="1.9" ry="1.5"/>
+      <ellipse class="hum-blush" cx="18" cy="32.5" rx="2.4" ry="1.4"/>
+      <ellipse class="hum-blush" cx="46" cy="32.5" rx="2.4" ry="1.4"/>
+      <g class="hum-dots"><circle cx="28" cy="36.5" r="1.1"/><circle cx="32" cy="36.5" r="1.1"/><circle cx="36" cy="36.5" r="1.1"/></g>
+    </g></g>
+  </g>
+</g>
+</g><rect x="174.0" y="10" width="84" height="30" rx="15" fill="#fff" fill-opacity=".12"/><circle cx="190.0" cy="25" r="4" fill="#ff6961"><animate attributeName="opacity" values="1;.4;1" dur="1.4s" repeatCount="indefinite"/></circle><g opacity="1"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.0714;0.0721;1.0000" values="1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:31</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.0707;0.0714;0.1429;0.1436;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:32</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.1421;0.1429;0.2143;0.2150;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:33</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.2136;0.2143;0.2857;0.2864;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:34</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.2850;0.2857;0.3571;0.3579;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:35</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.3564;0.3571;0.4286;0.4293;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:36</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.4279;0.4286;0.5000;0.5007;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:37</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.4993;0.5000;0.5714;0.5721;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:38</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.5707;0.5714;0.6429;0.6436;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:39</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.6421;0.6429;0.7143;0.7150;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:40</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.7136;0.7143;0.7857;0.7864;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:41</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.7850;0.7857;0.8571;0.8579;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:42</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.8564;0.8571;0.9286;0.9293;1.0000" values="0;0;1;1;0;0"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:43</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.9279;0.9286;1.0000" values="0;0;1;1"/><text x="212.0" y="29.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">12:44</text></g><rect x="280.0" y="17" width="1" height="16" fill="#fff" opacity=".1"/><g transform="translate(295.0 17.5) scale(0.3750)">
+<g class="hum hum-work " style="--body: hsl(214 75% 76%); --blink-delay: -1.4s">
+  <g class="hum-body">
+    <path class="hum-band" d="M7.75 21 C7.75 3.5 56.25 3.5 56.25 21"/>
+    <rect class="hum-shape" x="9" y="13" width="46" height="29" rx="14.5"/>
+    <ellipse class="hum-shine" cx="19" cy="18" rx="5" ry="2.2" transform="rotate(-16 19 18)"/>
+    <rect class="hum-shell" x="3" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-shell" x="51.5" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-cup" x="4.6" y="22" width="6.3" height="12" rx="3.15"/>
+    <rect class="hum-cup" x="53.1" y="22" width="6.3" height="12" rx="3.15"/>
+    <g class="hum-eq"><rect x="5.5" y="25" width="1.2" height="6" rx="0.6"/><rect x="7.15" y="25" width="1.2" height="6" rx="0.6"/><rect x="8.8" y="25" width="1.2" height="6" rx="0.6"/><rect x="54" y="25" width="1.2" height="6" rx="0.6"/><rect x="55.65" y="25" width="1.2" height="6" rx="0.6"/><rect x="57.3" y="25" width="1.2" height="6" rx="0.6"/></g>
+    <g class="hum-face"><g>
+      <g class="hum-eyes">
+        <rect class="hum-eye" x="23" y="24" width="4.4" height="7" rx="2.2"/>
+        <rect class="hum-eye" x="36.6" y="24" width="4.4" height="7" rx="2.2"/>
+      </g>
+      <path class="hum-line hum-smile" d="M22.8 28.5 q2.4 -3.6 4.8 0 M36.4 28.5 q2.4 -3.6 4.8 0"/>
+      <path class="hum-line hum-shut" d="M23 27.5 h4.4 M36.6 27.5 h4.4"/>
+      <ellipse class="hum-mouth" cx="32" cy="35" rx="1.9" ry="1.5"/>
+      <ellipse class="hum-blush" cx="18" cy="32.5" rx="2.4" ry="1.4"/>
+      <ellipse class="hum-blush" cx="46" cy="32.5" rx="2.4" ry="1.4"/>
+      <g class="hum-dots"><circle cx="28" cy="36.5" r="1.1"/><circle cx="32" cy="36.5" r="1.1"/><circle cx="36" cy="36.5" r="1.1"/></g>
+    </g></g>
+  </g>
+</g>
+</g><text x="324.0" y="29.5" font-size="12.5" fill="#8e8e93" font-weight="600" text-anchor="start">notch-code</text><g transform="translate(405.0 17.5) scale(0.3750)">
+<g class="hum hum-happy loop-hop" style="--body: hsl(142 75% 76%); --blink-delay: -4.2s">
+  <g class="hum-body">
+    <path class="hum-band" d="M7.75 21 C7.75 3.5 56.25 3.5 56.25 21"/>
+    <rect class="hum-shape" x="9" y="13" width="46" height="29" rx="14.5"/>
+    <ellipse class="hum-shine" cx="19" cy="18" rx="5" ry="2.2" transform="rotate(-16 19 18)"/>
+    <rect class="hum-shell" x="3" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-shell" x="51.5" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-cup" x="4.6" y="22" width="6.3" height="12" rx="3.15"/>
+    <rect class="hum-cup" x="53.1" y="22" width="6.3" height="12" rx="3.15"/>
+    <g class="hum-eq"><rect x="5.5" y="25" width="1.2" height="6" rx="0.6"/><rect x="7.15" y="25" width="1.2" height="6" rx="0.6"/><rect x="8.8" y="25" width="1.2" height="6" rx="0.6"/><rect x="54" y="25" width="1.2" height="6" rx="0.6"/><rect x="55.65" y="25" width="1.2" height="6" rx="0.6"/><rect x="57.3" y="25" width="1.2" height="6" rx="0.6"/></g>
+    <g class="hum-face"><g>
+      <g class="hum-eyes">
+        <rect class="hum-eye" x="23" y="24" width="4.4" height="7" rx="2.2"/>
+        <rect class="hum-eye" x="36.6" y="24" width="4.4" height="7" rx="2.2"/>
+      </g>
+      <path class="hum-line hum-smile" d="M22.8 28.5 q2.4 -3.6 4.8 0 M36.4 28.5 q2.4 -3.6 4.8 0"/>
+      <path class="hum-line hum-shut" d="M23 27.5 h4.4 M36.6 27.5 h4.4"/>
+      <ellipse class="hum-mouth" cx="32" cy="35" rx="1.9" ry="1.5"/>
+      <ellipse class="hum-blush" cx="18" cy="32.5" rx="2.4" ry="1.4"/>
+      <ellipse class="hum-blush" cx="46" cy="32.5" rx="2.4" ry="1.4"/>
+      <g class="hum-dots"><circle cx="28" cy="36.5" r="1.1"/><circle cx="32" cy="36.5" r="1.1"/><circle cx="36" cy="36.5" r="1.1"/></g>
+    </g></g>
+  </g>
+</g>
+</g><text x="434.0" y="29.5" font-size="12.5" fill="#8e8e93" font-weight="600" text-anchor="start">api-server</text><text x="520.0" y="30" font-size="17" fill="#8e8e93" font-weight="500" text-anchor="middle">+</text><rect x="610.0" y="14" width="72" height="22" rx="11" fill="#fff" fill-opacity=".06"/><text x="620.0" y="29" font-size="11" fill="#8e8e93" font-weight="600" text-anchor="start">5h</text><rect x="638.0" y="23" width="26" height="4" rx="2" fill="#fff" fill-opacity=".1"/><rect x="638.0" y="23" width="16" height="4" rx="2" fill="#30d158"/><text x="668.0" y="29" font-size="11" fill="#8e8e93" font-weight="600" text-anchor="start">62%</text><g transform="translate(694.0 18) scale(.55)" fill="none" stroke="#0a84ff" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></g><g transform="translate(722.0 18) scale(.6)" fill="none" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 7 4 3v2H6v-2l4-3-1-7z"/></g><g transform="translate(750.0 18) scale(.6)" fill="none" stroke="#8e8e93" stroke-width="2" stroke-linecap="round"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></g>
+<rect x="124.0" y="50" width="652" height="436" rx="20" fill="#111214" stroke="#fff" stroke-opacity=".07"/>
+<g transform="translate(138.0 66) scale(0.8125)">
+<g class="hum hum-listen ">
+  <g class="hum-body">
+    <path class="hum-band" d="M7.75 21 C7.75 3.5 56.25 3.5 56.25 21"/>
+    <rect class="hum-shape" x="9" y="13" width="46" height="29" rx="14.5"/>
+    <ellipse class="hum-shine" cx="19" cy="18" rx="5" ry="2.2" transform="rotate(-16 19 18)"/>
+    <rect class="hum-shell" x="3" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-shell" x="51.5" y="20" width="9.5" height="16" rx="4.75"/>
+    <rect class="hum-cup" x="4.6" y="22" width="6.3" height="12" rx="3.15"/>
+    <rect class="hum-cup" x="53.1" y="22" width="6.3" height="12" rx="3.15"/>
+    <g class="hum-eq"><rect x="5.5" y="25" width="1.2" height="6" rx="0.6"/><rect x="7.15" y="25" width="1.2" height="6" rx="0.6"/><rect x="8.8" y="25" width="1.2" height="6" rx="0.6"/><rect x="54" y="25" width="1.2" height="6" rx="0.6"/><rect x="55.65" y="25" width="1.2" height="6" rx="0.6"/><rect x="57.3" y="25" width="1.2" height="6" rx="0.6"/></g>
+    <g class="hum-face"><g>
+      <g class="hum-eyes">
+        <rect class="hum-eye" x="23" y="24" width="4.4" height="7" rx="2.2"/>
+        <rect class="hum-eye" x="36.6" y="24" width="4.4" height="7" rx="2.2"/>
+      </g>
+      <path class="hum-line hum-smile" d="M22.8 28.5 q2.4 -3.6 4.8 0 M36.4 28.5 q2.4 -3.6 4.8 0"/>
+      <path class="hum-line hum-shut" d="M23 27.5 h4.4 M36.6 27.5 h4.4"/>
+      <ellipse class="hum-mouth" cx="32" cy="35" rx="1.9" ry="1.5"/>
+      <ellipse class="hum-blush" cx="18" cy="32.5" rx="2.4" ry="1.4"/>
+      <ellipse class="hum-blush" cx="46" cy="32.5" rx="2.4" ry="1.4"/>
+      <g class="hum-dots"><circle cx="28" cy="36.5" r="1.1"/><circle cx="32" cy="36.5" r="1.1"/><circle cx="36" cy="36.5" r="1.1"/></g>
+    </g></g>
+  </g>
+</g>
+</g>
+      <text x="204.0" y="83" font-size="13.5" fill="#f5f5f7" font-weight="700">Recording <tspan fill="#8e8e93" font-weight="400">· Microsoft Teams</tspan></text>
+      <text x="204.0" y="105" font-size="11" fill="#8e8e93" font-weight="400" text-anchor="start">App</text><rect x="228.0" y="100" width="60" height="5" rx="2.5" fill="#fff" fill-opacity=".08"/><rect x="228.0" y="100" height="5" rx="2.5" fill="#30d158" width="20"><animate attributeName="width" values="12;44;30;58;22;50;16;40;12" dur="1.9s" repeatCount="indefinite"/></rect>
+      <text x="298.0" y="105" font-size="11" fill="#8e8e93" font-weight="400" text-anchor="start">Mic</text><rect x="322.0" y="100" width="60" height="5" rx="2.5" fill="#fff" fill-opacity=".08"/><rect x="322.0" y="100" height="5" rx="2.5" fill="#30d158" width="20"><animate attributeName="width" values="4;6;30;48;10;4;36;8;4" dur="2.3s" repeatCount="indefinite"/></rect>
+      <g opacity="1"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.0714;0.0721;1.0000" values="1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:31</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.0707;0.0714;0.1429;0.1436;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:32</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.1421;0.1429;0.2143;0.2150;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:33</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.2136;0.2143;0.2857;0.2864;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:34</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.2850;0.2857;0.3571;0.3579;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:35</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.3564;0.3571;0.4286;0.4293;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:36</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.4279;0.4286;0.5000;0.5007;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:37</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.4993;0.5000;0.5714;0.5721;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:38</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.5707;0.5714;0.6429;0.6436;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:39</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.6421;0.6429;0.7143;0.7150;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:40</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.7136;0.7143;0.7857;0.7864;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:41</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.7850;0.7857;0.8571;0.8579;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:42</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.8564;0.8571;0.9286;0.9293;1.0000" values="0;0;1;1;0;0"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:43</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.9279;0.9286;1.0000" values="0;0;1;1"/><text x="576.0" y="92" font-size="22" fill="#f5f5f7" font-weight="600" text-anchor="end">12:44</text></g>
+      <g transform="translate(590.0 76)" fill="none" stroke="#8e8e93" stroke-width="1.6"><path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3l1.5 1.5h6a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5h-10.5a1.5 1.5 0 0 1-1.5-1.5z"/></g>
+      <rect x="618.0" y="72" width="76" height="32" rx="10" fill="#fff" fill-opacity=".1"/>
+      <rect x="630.0" y="83" width="2.6" height="10" rx="1" fill="#f5f5f7"/><rect x="636.0" y="83" width="2.6" height="10" rx="1" fill="#f5f5f7"/>
+      <text x="646.0" y="92.5" font-size="12.5" fill="#f5f5f7" font-weight="600" text-anchor="start">Pause</text>
+      <rect x="702.0" y="72" width="62" height="32" rx="10" fill="#ff453a" fill-opacity=".18"/>
+      <rect x="714.0" y="83" width="10" height="10" rx="2" fill="#ff6961"/>
+      <text x="730.0" y="92.5" font-size="12.5" fill="#ff6961" font-weight="600" text-anchor="start">End</text>
+      <rect x="138.0" y="120" width="624" height="1" fill="#fff" fill-opacity=".09"/><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.0250;0.0429;0.9714;0.9893;1.0000" values="0;0;1;1;0;0"/>
+          <animateTransform attributeName="transform" type="translate" dur="14.0s" repeatCount="indefinite" keyTimes="0;0.0250;0.0429;1" values="0 6;0 6;0 0;0 0"/><text x="142.0" y="150" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start" font-variant-numeric="tabular-nums">12:31</text><text x="190.0" y="150" font-size="12" fill="#ffd60a" font-weight="600" text-anchor="start">Others</text><text x="254.0" y="150" font-size="13" fill="#e5e5ea" font-weight="400" text-anchor="start">Okay, let's go through the release plan for Thursday.</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.1607;0.1786;0.9714;0.9893;1.0000" values="0;0;1;1;0;0"/>
+          <animateTransform attributeName="transform" type="translate" dur="14.0s" repeatCount="indefinite" keyTimes="0;0.1607;0.1786;1" values="0 6;0 6;0 0;0 0"/><text x="142.0" y="182" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start" font-variant-numeric="tabular-nums">12:33</text><text x="190.0" y="182" font-size="12" fill="#64d2ff" font-weight="600" text-anchor="start">Me</text><text x="254.0" y="182" font-size="13" fill="#e5e5ea" font-weight="400" text-anchor="start">The build is green — I'm just waiting for one review.</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.2964;0.3143;0.9714;0.9893;1.0000" values="0;0;1;1;0;0"/>
+          <animateTransform attributeName="transform" type="translate" dur="14.0s" repeatCount="indefinite" keyTimes="0;0.2964;0.3143;1" values="0 6;0 6;0 0;0 0"/><text x="142.0" y="214" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start" font-variant-numeric="tabular-nums">12:36</text><text x="190.0" y="214" font-size="12" fill="#ffd60a" font-weight="600" text-anchor="start">Others</text><text x="254.0" y="214" font-size="13" fill="#e5e5ea" font-weight="400" text-anchor="start">Great. Can the transcripts go straight into the wiki?</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.4321;0.4500;0.9714;0.9893;1.0000" values="0;0;1;1;0;0"/>
+          <animateTransform attributeName="transform" type="translate" dur="14.0s" repeatCount="indefinite" keyTimes="0;0.4321;0.4500;1" values="0 6;0 6;0 0;0 0"/><text x="142.0" y="246" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start" font-variant-numeric="tabular-nums">12:38</text><text x="190.0" y="246" font-size="12" fill="#64d2ff" font-weight="600" text-anchor="start">Me</text><text x="254.0" y="246" font-size="13" fill="#e5e5ea" font-weight="400" text-anchor="start">Yes, they're plain Markdown files in Documents\Notch Code.</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.5679;0.5857;0.9714;0.9893;1.0000" values="0;0;1;1;0;0"/>
+          <animateTransform attributeName="transform" type="translate" dur="14.0s" repeatCount="indefinite" keyTimes="0;0.5679;0.5857;1" values="0 6;0 6;0 0;0 0"/><text x="142.0" y="278" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start" font-variant-numeric="tabular-nums">12:40</text><text x="190.0" y="278" font-size="12" fill="#ffd60a" font-weight="600" text-anchor="start">Others</text><text x="254.0" y="278" font-size="13" fill="#e5e5ea" font-weight="400" text-anchor="start">And none of this audio leaves the laptop, right?</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.7071;0.7214;0.8214;0.8357;1.0000" values="0;0;1;1;0;0"/><text x="142.0" y="310" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start">12:42</text><text x="190.0" y="310" font-size="12" fill="#64d2ff" font-weight="600" text-anchor="start">Me</text><text x="254.0" y="310" font-size="13" fill="#8e8e93" font-weight="400" text-anchor="start" font-style="italic">Fully local — Whisper runs on the</text></g><g opacity="0"><animate attributeName="opacity" dur="14.0s" repeatCount="indefinite" keyTimes="0.0000;0.8179;0.8214;0.9714;0.9750;1.0000" values="0;0;1;1;0;0"/><text x="142.0" y="310" font-size="11.5" fill="#636366" font-weight="400" text-anchor="start">12:42</text><text x="190.0" y="310" font-size="12" fill="#64d2ff" font-weight="600" text-anchor="start">Me</text><text x="254.0" y="310" font-size="13" fill="#e5e5ea" font-weight="400" text-anchor="start">Fully local — Whisper runs on the GPU, nothing goes to the cloud.</text></g>
+</svg>

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Notch Code — wide mascot candidates</title>
+<style>
+  :root { color-scheme: dark; --ease: cubic-bezier(0.32, 0.72, 0, 1); }
+  body { margin: 0; background: linear-gradient(160deg, #34353d, #1d1e22) fixed; color: #f5f5f7;
+    font: 14px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; }
+  h1 { font-size: 26px; margin: 28px 0 4px; }
+  h2 { font-size: 20px; margin: 0; }
+  h3 { font-size: 12px; margin: 22px 0 10px; color: #8e8e93; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+  p { color: #a1a1a6; margin: 4px 0 0; line-height: 1.5; max-width: 720px; }
+  .bar-top { position: sticky; top: 0; z-index: 9; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+    padding: 12px 0; background: rgba(29,30,34,.85); backdrop-filter: blur(10px); }
+  .moods { display: flex; flex-wrap: wrap; gap: 6px; }
+  button.m { font: inherit; font-size: 12.5px; font-weight: 600; color: #8e8e93; background: rgba(255,255,255,.06); border: 0; border-radius: 99px; padding: 6px 12px; cursor: pointer; }
+  button.m.on { background: rgba(255,255,255,.16); color: #fff; }
+  label { display: flex; align-items: center; gap: 8px; color: #c7c7cc; font-size: 13px; }
+
+  .cand { margin-top: 26px; padding: 26px; border-radius: 26px; background: #111214; border: 1px solid rgba(255,255,255,.07); position: relative; overflow: hidden; }
+  .cand::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 16% 125%, var(--glow), transparent 55%); }
+  .head { display: flex; gap: 36px; align-items: center; position: relative; }
+  .head .mascot { filter: drop-shadow(0 14px 28px rgba(0,0,0,.45)); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.08); color: #c7c7cc; margin-left: 8px; vertical-align: 3px; }
+  .grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 8px; position: relative; }
+  .cell { background: rgba(255,255,255,.035); border-radius: 14px; padding: 14px 4px 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .cell span { font-size: 11px; color: #8e8e93; }
+
+  .screens { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; position: relative; }
+  .screen { background: linear-gradient(180deg, #3b4a66, #263042); border-radius: 12px; padding-bottom: 22px; display: flex; justify-content: center; }
+  .notch { position: relative; height: 36px; }
+  .clip { position: absolute; inset: 0; background: #000; border-radius: 0 0 18px 18px; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 12px; white-space: nowrap; overflow: hidden; }
+  .ear { position: absolute; top: 0; width: 12px; height: 12px; }
+  .ear-l { left: -12px; background: radial-gradient(circle at 0 100%, transparent 11.5px, #000 12px); }
+  .ear-r { right: -12px; background: radial-gradient(circle at 100% 100%, transparent 11.5px, #000 12px); }
+  .ticker { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #e5e5ea; font-size: 13px; }
+  .timer { font-variant-numeric: tabular-nums; font-weight: 600; color: #ff6961; font-size: 13px; }
+  .muted { color: #8e8e93; font-size: 12px; }
+  .sessions { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; position: relative; }
+
+  /* ================================================================ mascot (shared by all three) */
+  .mascot { --body: #ffc9a3; --lit: #4a4760; --ink: #1d1626; --lvl: 0; --lx: 0px; --ly: 0px; display: block; flex: none; overflow: visible; }
+  .m-body { transform-box: fill-box; transform-origin: 50% 100%; animation: m-breathe 3.6s ease-in-out infinite; }
+  .m-shape { fill: var(--body); }
+  .m-shine { fill: #fff; opacity: .45; }
+  .m-band { fill: none; stroke: #3d3a52; stroke-width: 3.2; stroke-linecap: round; }
+  .m-light { fill: var(--lit); transition: fill 300ms; }
+  .m-face { transform: translate(var(--lx), var(--ly)); transition: transform 140ms ease-out; }
+  .m-eyes { transform-box: fill-box; transform-origin: center; animation: m-blink 5.2s infinite; animation-delay: var(--blink-delay, 0s); }
+  .m-eye, .m-mouth { fill: var(--ink); }
+  .m-line { fill: none; stroke: var(--ink); stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+  .m-blush { fill: #ff6f91; opacity: .3; }
+  .m-smile, .m-shut, .m-mouth, .m-waves, .m-dots { opacity: 0; transition: opacity 200ms; }
+  .m-wave { fill: none; stroke: var(--lit); stroke-width: 2.2; stroke-linecap: round; }
+  .m-dots circle { fill: var(--ink); }
+
+  .mood-sleep .m-eyes, .mood-paused .m-eyes, .mood-error .m-eyes, .mood-happy .m-eyes { opacity: 0; }
+  .mood-sleep .m-shut, .mood-paused .m-shut, .mood-error .m-shut, .mood-happy .m-smile { opacity: 1; }
+  .mood-sleep .m-body { animation-duration: 5.5s; }
+  .mood-sleep .m-face { transform: translateY(1px); }
+
+  .mood-listen { --lit: #ff453a; }
+  .mood-voice { --lit: #64d2ff; }
+  .mood-paused { --lit: #ffd60a; }
+  .mood-work { --lit: #0a84ff; }
+  .mood-happy { --lit: #30d158; }
+  .mood-warn { --lit: #ff9f0a; }
+  .mood-error { --lit: #ff453a; }
+
+  .mood-listen .m-light, .mood-voice .m-light, .mood-work .m-light, .mood-warn .m-light { animation: m-glow 1.4s ease-in-out infinite; }
+  .mood-listen .m-waves { opacity: 1; }
+  .mood-listen .w1 { opacity: calc(.2 + var(--lvl) * .8); }
+  .mood-listen .w2 { opacity: calc(var(--lvl) * .7); }
+  .mood-voice .m-waves { opacity: 1; animation: m-glow 1.1s ease-in-out infinite; }
+  .mood-voice .m-mouth { opacity: 1; }
+  .mood-work .m-eyes { animation: m-scan 2.4s ease-in-out infinite; }
+  .mood-work .m-body { animation: m-bob 1.2s ease-in-out infinite; }
+  .mood-work .m-dots { opacity: 1; }
+  .mood-work .m-dots circle { animation: m-dot 1.2s ease-in-out infinite; }
+  .mood-work .m-dots circle:nth-child(2) { animation-delay: .15s; }
+  .mood-work .m-dots circle:nth-child(3) { animation-delay: .3s; }
+  .mood-happy .m-blush { opacity: .75; }
+  .mood-happy .m-body { animation: m-hop .9s var(--ease) infinite; }
+  .mood-warn .m-face { transform: translate(var(--lx), var(--ly)) rotate(-6deg); transform-box: fill-box; transform-origin: center; }
+  .mood-error .m-body { animation: m-shake .5s ease-in-out infinite; animation-delay: 1s; }
+
+  @keyframes m-breathe { 50% { transform: scale(1.02, .96); } }
+  @keyframes m-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
+  @keyframes m-glow { 50% { opacity: .35; } }
+  @keyframes m-scan { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
+  @keyframes m-bob { 50% { transform: translateY(-1.5px); } }
+  @keyframes m-hop { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-6px) scale(.97, 1.04); } 38% { transform: scale(1.06, .92); } }
+  @keyframes m-shake { 0%, 60%, 100% { transform: none; } 15%, 45% { transform: translateX(-2px); } 30% { transform: translateX(2px); } }
+  @keyframes m-dot { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-1.6px); } }
+  .m-dots circle { transform-box: fill-box; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Wide mascot — three candidates</h1>
+  <p>Each one is wide and low so it sits nicely in the notch bar. Same moods for all: the coloured part (headphones, camera dot, notification dot)
+    shows what's going on — red while recording, blue while Claude works, green when done. Hover anywhere: eyes follow the pointer.</p>
+
+  <div class="bar-top">
+    <div class="moods" id="moods"></div>
+    <label><input type="checkbox" id="auto" checked /> simulate speech</label>
+  </div>
+
+  <div id="cands"></div>
+</main>
+
+<script>
+const MOODS = [
+  ["idle", "Idle"], ["sleep", "Sleep"], ["listen", "Recording"], ["paused", "Paused"], ["voice", "Voice"],
+  ["work", "Working"], ["happy", "Done"], ["warn", "Warn"], ["error", "Error"],
+];
+
+// shared face; dx/dy shift it per body shape
+function face(cx, cy) {
+  const L = cx - 9, R = cx + 4.6;
+  return `<g class="m-face">
+    <g class="m-eyes">
+      <rect class="m-eye" x="${L}" y="${cy - 3.5}" width="4.4" height="7" rx="2.2" />
+      <rect class="m-eye" x="${R}" y="${cy - 3.5}" width="4.4" height="7" rx="2.2" />
+    </g>
+    <path class="m-line m-smile" d="M${L - .2} ${cy + 1} q2.4 -3.6 4.8 0 M${R - .2} ${cy + 1} q2.4 -3.6 4.8 0" />
+    <path class="m-line m-shut" d="M${L} ${cy} h4.4 M${R} ${cy} h4.4" />
+    <ellipse class="m-mouth" cx="${cx}" cy="${cy + 7.5}" rx="1.9" ry="1.5" />
+    <ellipse class="m-blush" cx="${L - 5}" cy="${cy + 5}" rx="2.4" ry="1.4" />
+    <ellipse class="m-blush" cx="${R + 9.4}" cy="${cy + 5}" rx="2.4" ry="1.4" />
+  </g>`;
+}
+const waves = (y) => `<g class="m-waves">
+  <path class="m-wave w1" d="M1.5 ${y} q-2.6 5 0 10 M62.5 ${y} q2.6 5 0 10" />
+  <path class="m-wave w2" d="M-2.5 ${y - 3} q-4.4 8 0 16 M66.5 ${y - 3} q4.4 8 0 16" />
+</g>`;
+
+const CANDS = [
+  {
+    id: "hum", name: "Hum", tag: "headphones", body: "#ffc9a3", glow: "rgba(255,170,120,.22)",
+    about: "A wide, soft bun wearing headphones — it's the one that listens. The ear cups light up with the mood (red while it records).",
+    svg: () => `${waves(23)}
+      <g class="m-body">
+        <path class="m-band" d="M9.5 23 C9.5 4.5 54.5 4.5 54.5 23" />
+        <rect class="m-shape" x="9" y="13" width="46" height="29" rx="14.5" />
+        <ellipse class="m-shine" cx="19" cy="18" rx="5" ry="2.2" transform="rotate(-16 19 18)" />
+        <rect class="m-light" x="3.5" y="21" width="8.5" height="14" rx="4.2" />
+        <rect class="m-light" x="52" y="21" width="8.5" height="14" rx="4.2" />
+        ${face(32, 27.5)}
+        <g class="m-dots"><circle cx="28" cy="36.5" r="1.1"/><circle cx="32" cy="36.5" r="1.1"/><circle cx="36" cy="36.5" r="1.1"/></g>
+      </g>`,
+  },
+  {
+    id: "nib", name: "Nib", tag: "notch-shaped", body: "#a9e8cf", glow: "rgba(120,230,190,.18)",
+    about: "Shaped like the notch itself — flat top with the little curved ears — hanging from the edge of the screen. The camera dot on its forehead is the mood light.",
+    svg: () => `${waves(18)}
+      <g class="m-body">
+        <path class="m-shape" d="M0 6 Q8 6 8 14 V28 C8 36.5 13.5 42 22 42 H42 C50.5 42 56 36.5 56 28 V14 Q56 6 64 6 Z" />
+        <ellipse class="m-shine" cx="17" cy="13" rx="4.6" ry="2" transform="rotate(-10 17 13)" />
+        <circle class="m-light" cx="32" cy="12" r="2.6" />
+        ${face(32, 25)}
+        <g class="m-dots"><circle cx="28" cy="34.5" r="1.1"/><circle cx="32" cy="34.5" r="1.1"/><circle cx="36" cy="34.5" r="1.1"/></g>
+      </g>`,
+  },
+  {
+    id: "puff", name: "Puff", tag: "speech bubble", body: "#b8d6ff", glow: "rgba(130,180,255,.2)",
+    about: "A wide speech bubble with a tail — it turns speech into text. While Claude works it 'types' (three dots); the corner dot is the mood light.",
+    svg: () => `${waves(14)}
+      <g class="m-body">
+        <path class="m-shape" d="M21 6 H43 C51.3 6 58 12.7 58 21 C58 29.3 51.3 36 43 36 H27 L17.5 42.5 C16.8 43 16 42.4 16.3 41.6 L18.6 34.4 C11.3 32.4 6 27.3 6 21 C6 12.7 12.7 6 21 6 Z" />
+        <ellipse class="m-shine" cx="17" cy="12.5" rx="4.6" ry="2" transform="rotate(-18 17 12.5)" />
+        <circle class="m-light" cx="53.5" cy="9" r="3.4" stroke="#111214" stroke-width="1.6" />
+        ${face(32, 19.5)}
+        <g class="m-dots"><circle cx="28" cy="29" r="1.1"/><circle cx="32" cy="29" r="1.1"/><circle cx="36" cy="29" r="1.1"/></g>
+      </g>`,
+  },
+];
+
+const H = 44 / 64;
+function mascot(c, mood, w, hue) {
+  const style = `--body:${hue != null ? `hsl(${hue} 75% 76%)` : c.body};${hue != null ? `--blink-delay:${-(hue % 50) / 10}s` : ""}`;
+  return `<svg class="mascot mood-${mood}" viewBox="0 0 64 44" width="${w}" height="${Math.round(w * H)}" style="${style}">${c.svg()}</svg>`;
+}
+
+const hash = (s) => { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
+let heroMood = "listen";
+
+function render() {
+  document.getElementById("cands").innerHTML = CANDS.map((c, i) => `
+    <section class="cand" style="--glow:${c.glow}">
+      <div class="head">
+        <div class="hero">${mascot(c, heroMood, 230)}</div>
+        <div><h2>${i + 1}. ${c.name}<span class="tag">${c.tag}</span></h2><p>${c.about}</p></div>
+      </div>
+      <h3>Every mood</h3>
+      <div class="grid">${MOODS.map(([m, l]) => `<div class="cell">${mascot(c, m, 78)}<span>${l}</span></div>`).join("")}</div>
+      <h3>In the notch</h3>
+      <div class="screens">
+        <div class="screen"><div class="notch" style="width:280px"><span class="ear ear-l"></span><span class="ear ear-r"></span>
+          <div class="clip">${mascot(c, "sleep", 40)}</div></div></div>
+        <div class="screen"><div class="notch" style="width:440px"><span class="ear ear-l"></span><span class="ear ear-r"></span>
+          <div class="clip">${mascot(c, "listen", 40)}<span class="timer">12:47</span><span class="ticker"><b>Others:</b> so the release goes out on Thursday?</span></div></div></div>
+        <div class="screen"><div class="notch" style="width:440px"><span class="ear ear-l"></span><span class="ear ear-r"></span>
+          <div class="clip">${mascot(c, "work", 40)}<span class="ticker">notch-transcript: Running npm test</span><span class="muted">01:12</span></div></div></div>
+        <div class="screen"><div class="notch" style="width:440px"><span class="ear ear-l"></span><span class="ear ear-r"></span>
+          <div class="clip">${mascot(c, "happy", 40)}<span class="ticker">notch-transcript finished — 14 steps</span><span class="muted">hover to see</span></div></div></div>
+      </div>
+      <h3>One per Claude session (own colour)</h3>
+      <div class="sessions">${["notch-transcript", "notes-app", "website", "api-server", "dotfiles"]
+        .map((n, k) => mascot(c, k === 0 ? "work" : k === 2 ? "happy" : "idle", 64, hash(n))).join("")}</div>
+    </section>`).join("");
+}
+
+const moods = document.getElementById("moods");
+moods.innerHTML = MOODS.map(([m, l]) => `<button class="m" data-m="${m}">Big one: ${l}</button>`).join("");
+moods.onclick = (e) => {
+  const m = e.target.dataset?.m; if (!m) return;
+  heroMood = m; render(); mark();
+};
+const mark = () => [...moods.children].forEach((b) => b.classList.toggle("on", b.dataset.m === heroMood));
+render(); mark();
+
+// fake speech level for the "Recording" waves
+const auto = document.getElementById("auto");
+let t = 0;
+(function tick() {
+  t += 0.08;
+  const talk = auto.checked ? Math.max(0, Math.sin(t * 0.7) + 0.3) * (0.35 + 0.65 * Math.abs(Math.sin(t * 3.1) * Math.sin(t * 1.7))) : 0.3;
+  const v = Math.min(1, Math.sqrt(Math.min(1, talk)) * 1.6).toFixed(2);
+  document.querySelectorAll(".mascot").forEach((p) => p.style.setProperty("--lvl", v));
+  requestAnimationFrame(tick);
+})();
+
+// eyes follow the pointer
+window.addEventListener("pointermove", (e) => {
+  document.querySelectorAll(".hero .mascot, .grid .mascot").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 200);
+    el.style.setProperty("--lx", `${((dx / d) * k * 2.6).toFixed(2)}px`);
+    el.style.setProperty("--ly", `${((dy / d) * k * 1.8).toFixed(2)}px`);
+  });
+});
+</script>
+</body>
+</html>

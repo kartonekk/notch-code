@@ -8,6 +8,7 @@ mod hover;
 mod paths;
 mod review;
 mod setup;
+mod terminal;
 mod transcriber;
 mod transcript;
 mod update;
@@ -428,6 +429,11 @@ fn place_window(window: &WebviewWindow) -> tauri::Result<()> {
 // ---------------------------------------------------------------- app
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// `NotchCode.exe --terminal …` opens a terminal window and quits (see terminal.rs).
+pub fn terminal_from_args() -> Option<i32> {
+    terminal::from_args()
+}
+
 pub fn run() {
     // started by Claude as the review snapshot hook: do that and nothing else
     if review::run_hook_if_requested() {
@@ -475,6 +481,7 @@ pub fn run() {
             agent::agent_set_project,
             agent::agent_pick_folder,
             agent::agent_open_folder,
+            terminal::open_terminal,
             agent::agent_save_image,
             agent::agent_pick_images,
             review::review_status,
