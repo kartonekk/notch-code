@@ -13,8 +13,6 @@ const ANIM_MS = 260;
 const SPEAKER_LABEL = { me: "Me", others: "Others" } as const;
 /** "Later" on the Claude sign-in reminder hides it for this long */
 const CLAUDE_SNOOZE_MS = 60 * 60 * 1000;
-/** "Later" on the update notice hides it for this long */
-const UPDATE_SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -29,7 +27,8 @@ export default function App() {
   const [claude, setClaude] = useState<ClaudeStatus | null>(null);
   const [claudeSnoozedUntil, setClaudeSnoozedUntil] = useState(0);
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
-  const [updateSnoozedUntil, setUpdateSnoozedUntil] = useState(0);
+  /** build the user said "Later" to; a newer build shows the notice again */
+  const [skippedBuild, setSkippedBuild] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   /** "End" was clicked: asking for the meeting subject (file name) */
@@ -225,7 +224,7 @@ export default function App() {
   const showClaudeBanner = claudeWorking || (claudeAlert && Date.now() >= claudeSnoozedUntil);
   const showUpdate =
     update?.state === "downloading" ||
-    ((update?.state === "available" || update?.state === "error") && Date.now() >= updateSnoozedUntil);
+    ((update?.state === "available" || update?.state === "error") && update.available !== skippedBuild);
 
   return (
     <div className="stage">
@@ -322,7 +321,7 @@ export default function App() {
               <UpdateBanner
                 update={update}
                 recording={recording}
-                onLater={() => setUpdateSnoozedUntil(Date.now() + UPDATE_SNOOZE_MS)}
+                onLater={() => setSkippedBuild(update.available)}
               />
             )}
 

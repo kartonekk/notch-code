@@ -24,7 +24,7 @@ use crate::paths;
 const REPO: &str = "kartonekk/notch-code";
 const ASSET: &str = "NotchCode.exe";
 const FIRST_CHECK: Duration = Duration::from_secs(30);
-const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const CHECK_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 /// Build number of this exe; None for local builds, which never update.
 pub fn current_build() -> Option<u64> {
@@ -141,7 +141,7 @@ fn check(app: &AppHandle) {
     }
 }
 
-/// Looks for a newer build shortly after launch and then every few hours.
+/// Looks for a newer build shortly after launch and then every 15 minutes.
 pub fn spawn_checker(app: AppHandle) {
     match current_build() {
         Some(n) => paths::log(format!("build {n}")),
