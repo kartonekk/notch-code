@@ -2533,17 +2533,33 @@ kbd {
   animation-duration: calc(var(--d) * 0.8);
 }
 
-/* Auto on but nothing running: the fire holds still, embers go out */
+/* Auto on but nothing running: no fire at all. Only the mode button
+   (static) says the mode is on; everything lights up once Claude works. */
 .notch.is-reckless:not(.is-working)::before,
 .notch.is-reckless:not(.is-working)::after,
 .notch.is-reckless:not(.is-working) .notch-clip::before,
-.notch.is-reckless:not(.is-working) .segmented button.mode-reckless.is-active,
-.notch.is-reckless:not(.is-working) .hazard,
-.notch.is-reckless:not(.is-working) .code.is-reckless .composer {
-  animation-play-state: paused !important;
+.notch.is-reckless:not(.is-working) .embers,
+.notch.is-reckless:not(.is-working) .reckless-strip {
+  display: none !important;
 }
-.notch.is-reckless:not(.is-working) .embers {
-  display: none;
+.notch.is-reckless:not(.is-working) .segmented button.mode-reckless.is-active {
+  animation: none;
+  box-shadow: none;
+}
+.notch.is-reckless:not(.is-working) .code.is-reckless .composer {
+  animation: none;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.notch.is-reckless:not(.is-working) .code.is-reckless .composer:focus-within {
+  border-color: var(--accent);
+}
+.notch.is-reckless:not(.is-working) .code.is-reckless .send-btn:not(:disabled):not(.is-stop) {
+  background: var(--accent);
+  box-shadow: none;
+}
+.notch.is-igniting:not(.is-working) {
+  animation: none;
 }
 
 /* Windows "Animation effects" off: keep the colours, drop the motion */

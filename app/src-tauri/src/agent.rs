@@ -76,6 +76,17 @@ pub struct Limit {
     pub resets_at: Option<u64>,
 }
 
+/// Takes a `rate_limit_info` from any Claude run (also the sign-in probe).
+pub fn record_limit(app: &AppHandle, info: &Value) {
+    let Some(limit) = parse_limit(info) else { return };
+    update(app, |i| {
+        // keep the last known usage of the same window when this event doesn't carry one
+        let same_window = |l: &&Limit| l.resets_at == limit.resets_at;
+        let used = limit.used.or(i.limit.as_ref().filter(same_window).and_then(|l| l.used));
+        i.limit = Some(Limit { used, ..limit });
+    });
+}
+
 fn parse_limit(info: &Value) -> Option<Limit> {
     let kind = info.get("rateLimitType").and_then(Value::as_str).unwrap_or("five_hour");
     if kind != "five_hour" {
@@ -523,13 +534,8 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
                 }
             }
             Some("rate_limit_event") => {
-                if let Some(limit) = ev.get("rate_limit_info").and_then(parse_limit) {
-                    update(app, |i| {
-                        // keep the last known usage of the same window when this event doesn't carry one
-                        let same_window = |l: &&Limit| l.resets_at == limit.resets_at;
-                        let used = limit.used.or(i.limit.as_ref().filter(same_window).and_then(|l| l.used));
-                        i.limit = Some(Limit { used, ..limit });
-                    });
+                if let Some(info) = ev.get("rate_limit_info") {
+                    record_limit(app, info);
                 }
             }
             Some("result") => {

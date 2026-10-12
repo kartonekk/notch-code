@@ -6,6 +6,7 @@
 //! every CHECK_INTERVAL and (throttled) whenever the notch is opened.
 
 use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::paths;
@@ -24,6 +26,7 @@ const STATUS_TIMEOUT: Duration = Duration::from_secs(30);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_POLL: Duration = Duration::from_secs(3);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 const INSTALL_COMMAND: &str = "irm https://claude.ai/install.ps1 | iex";
 const EXPIRED: &str = "Claude's sign-in has expired. Sign in again.";
 
@@ -351,19 +354,79 @@ pub fn report_auth_ok(app: &AppHandle) {
     }
 }
 
+/// `auth status` only says a sign-in is saved, not that it still works: a
+/// session that expired and can't be refreshed looks exactly the same. A
+/// one-word Haiku request without tools settles it. With a dead session it
+/// fails before reaching the API; otherwise its usage report fills in the
+/// 5-hour limit right away.
+fn probe(app: &AppHandle, cli: &Path) {
+    let child = hidden(cli)
+        .args(["-p", "--output-format", "stream-json", "--verbose", "--model", "haiku", "--max-turns", "1"])
+        .args(["--no-session-persistence", "--strict-mcp-config", "--tools", "", "--system-prompt", "Reply with OK."])
+        .current_dir(paths::data_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => return paths::log(format!("claude probe failed to start: {e}")),
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"ping");
+    }
+    let Some(stdout) = child.stdout.take() else { return };
+    let reader = std::thread::spawn(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).collect::<Vec<_>>()
+    });
+    let _ = wait_for(&mut child, PROBE_TIMEOUT);
+    let lines = reader.join().unwrap_or_default();
+
+    let mut auth_failed = false;
+    let mut ok = false;
+    for line in &lines {
+        let Ok(ev) = serde_json::from_str::<Value>(line) else { continue };
+        match ev.get("type").and_then(Value::as_str) {
+            Some("assistant") => auth_failed |= ev.get("error").and_then(Value::as_str) == Some("authentication_failed"),
+            Some("rate_limit_event") => {
+                if let Some(info) = ev.get("rate_limit_info") {
+                    crate::agent::record_limit(app, info);
+                }
+            }
+            Some("result") => ok = !ev.get("is_error").and_then(Value::as_bool).unwrap_or(true),
+            _ => {}
+        }
+    }
+    paths::log(format!("claude probe: {}", if auth_failed { "sign-in expired" } else if ok { "ok" } else { "no answer" }));
+    if auth_failed {
+        report_auth_failure(app);
+    }
+}
+
 // ---------------------------------------------------------------- lifecycle
 
 /// Installs the CLI if needed, then re-checks the sign-in for the app's lifetime.
+/// At launch the saved sign-in is also tried for real (see `probe`).
 pub fn spawn_monitor(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        exclusive(&app, || {
-            if find_cli().is_none() {
-                install(&app);
-            } else {
-                check(&app);
-            }
-        });
-        std::thread::sleep(CHECK_INTERVAL);
+    std::thread::spawn(move || {
+        let mut first = true;
+        loop {
+            exclusive(&app, || {
+                if find_cli().is_none() {
+                    install(&app);
+                } else {
+                    check(&app);
+                }
+                let signed_in = app.state::<Claude>().status.lock().unwrap().state == AuthState::SignedIn;
+                if first && signed_in {
+                    if let Some(cli) = find_cli() {
+                        probe(&app, &cli);
+                    }
+                }
+            });
+            first = false;
+            std::thread::sleep(CHECK_INTERVAL);
+        }
     });
 }
 
