@@ -25,11 +25,12 @@ pub struct SlashCommand {
 }
 
 /// Built-ins that work in a headless run.
-const BUILT_IN: [(&str, &str, Option<&str>); 4] = [
+const BUILT_IN: [(&str, &str, Option<&str>); 5] = [
     ("compact", "Summarize the conversation so far to free up context", Some("[instructions]")),
     ("init", "Write a CLAUDE.md describing this project", None),
     ("review", "Review a pull request", Some("[PR number]")),
     ("security-review", "Security review of the pending changes", None),
+    ("usage", "How much of your plan is used", None),
 ];
 
 /// `key: value` pairs from a Markdown file's YAML front matter (`>` / `|` blocks folded into one line).

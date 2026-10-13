@@ -159,13 +159,19 @@ const LOCAL_COMMANDS: SlashCommand[] = [
   { name: "model", description: `Switch the model: ${MODELS.map((m) => m.label.toLowerCase()).join(", ")}`, hint: "[model]", source: "notch" },
 ];
 
-/** Commands whose name (or the part after "plugin:") starts with `query` first, then those containing it. */
+/** `c`'s name (or the part after "plugin:") starts with `query` */
+function namedLike(c: SlashCommand, query: string) {
+  const name = c.name.toLowerCase();
+  const q = query.toLowerCase();
+  return name.startsWith(q) || name.slice(name.indexOf(":") + 1).startsWith(q);
+}
+
+/** Commands named like `query` first, then those containing it. */
 function matchCommands(all: SlashCommand[], query: string): SlashCommand[] {
   const q = query.toLowerCase();
   const rank = (c: SlashCommand) => {
-    const name = c.name.toLowerCase();
-    if (name.startsWith(q) || name.slice(name.indexOf(":") + 1).startsWith(q)) return 0;
-    return name.includes(q) || (c.description ?? "").toLowerCase().includes(q) ? 1 : 2;
+    if (namedLike(c, q)) return 0;
+    return c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q) ? 1 : 2;
   };
   return all
     .map((c) => ({ c, r: rank(c) }))
@@ -428,6 +434,8 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   // "/" menu: shown while the draft is just "/name"
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
+  /** picked with the arrows, not just the first match */
+  const [slashMoved, setSlashMoved] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const slashQuery = /^\/(\S*)$/.exec(draft)?.[1] ?? null;
   const slashOn = slashQuery != null && focused && !slashDismissed;
@@ -439,7 +447,10 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   useEffect(() => {
     if (slashOn) api.agentCommands(sid).then(setCommands).catch(() => setCommands([]));
   }, [slashOn, sid]);
-  useEffect(() => setSlashIndex(0), [slashQuery]);
+  useEffect(() => {
+    setSlashIndex(0);
+    setSlashMoved(false);
+  }, [slashQuery]);
   const typingCommand = slashQuery != null;
   useEffect(() => {
     if (!typingCommand) setSlashDismissed(false);
@@ -756,13 +767,18 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
                 const move = (i: number) => {
                   e.preventDefault();
                   setSlashIndex(i);
+                  setSlashMoved(true);
                 };
                 if (e.key === "ArrowDown") return move((slashIndex + 1) % n);
                 if (e.key === "ArrowUp") return move((slashIndex - 1 + n) % n);
-                if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey && !e.ctrlKey)) {
+                const pick = slashMatches[Math.min(slashIndex, n - 1)];
+                // Enter on a command the menu doesn't know yet ("/usage" before Claude's
+                // first reply lists its own) sends it as typed, not a match by description
+                const typed = e.key === "Enter" && !slashMoved && !namedLike(pick, slashQuery ?? "");
+                if (!typed && ((e.key === "Enter" && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey && !e.ctrlKey))) {
                   e.preventDefault();
                   e.stopPropagation();
-                  return pickCommand(slashMatches[Math.min(slashIndex, n - 1)], e.key === "Enter");
+                  return pickCommand(pick, e.key === "Enter");
                 }
                 if (e.key === "Escape") {
                   e.preventDefault();
