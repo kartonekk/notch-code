@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, AppStatus, AudioSource, Levels, on, Segment } from "./api";
-import { Hum } from "./Hum";
-import { CheckIcon, FolderIcon, formatDuration, IconButton, Meter, PauseIcon, PlayIcon, store } from "./ui";
+import { CheckIcon, FolderIcon, formatDuration, IconButton, Meter, Orb, PauseIcon, PlayIcon, store } from "./ui";
 
 export const SPEAKER_LABEL = { me: "Me", others: "Others" } as const;
 
@@ -138,10 +137,10 @@ export function TranscribeTab({ t, status }: { t: Transcription; status: AppStat
   if (t.phase === "error") {
     return (
       <div className="empty-state">
-        <Hum mood="error" size={96} />
+        <Orb status="error" size={14} />
         <p className="empty-title">The speech model couldn't start</p>
         <p className="error-text">{status?.message}</p>
-        <button className="btn btn-accent" onClick={() => api.retrySetup()}>
+        <button className="btn primary" onClick={() => api.retrySetup()}>
           Try again
         </button>
       </div>
@@ -181,7 +180,6 @@ function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
       <div className="source-list">
         {t.sources.length === 0 && (
           <div className="empty">
-            <Hum mood="sleep" size={64} />
             No apps are playing audio.
             <br />
             Join a meeting (Webex, Teams, Zoom…) and it shows up here.
@@ -201,7 +199,7 @@ function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
             <span className="source-check">{t.selectedPid === s.pid && <CheckIcon />}</span>
             <span className="source-name">
               {s.name}
-              {s.suggested && <span className="chip chip-accent">meeting</span>}
+              {s.suggested && <span className="chip is-accent">meeting</span>}
             </span>
             <span className="source-exe">{s.exe}</span>
             <Meter level={s.peak} />
@@ -214,7 +212,7 @@ function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
           <span className="switch" />
           Also my microphone
         </label>
-        <button className="btn btn-record btn-big" disabled={selected === null} onClick={t.start}>
+        <button className="btn primary lg" disabled={selected === null} onClick={t.start}>
           <span className="rec-dot" />
           <span className="btn-big-text">{selected ? `Start transcribing ${selected.name}` : "Pick an app to record"}</span>
           {selected && <kbd>Enter</kbd>}
@@ -269,7 +267,6 @@ function Live({ t, status }: { t: Transcription; status: AppStatus | null }) {
             t.finish();
           }}
         >
-          <Hum mood="happy" size={52} />
           <input
             className="text-input"
             autoFocus
@@ -280,16 +277,16 @@ function Live({ t, status }: { t: Transcription; status: AppStatus | null }) {
             onChange={(e) => t.setSubject(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && t.setEnding(false)}
           />
-          <button type="button" className="btn btn-ghost" disabled={t.busy} onClick={() => t.setEnding(false)}>
+          <button type="button" className="btn secondary" disabled={t.busy} onClick={() => t.setEnding(false)}>
             Keep recording
           </button>
-          <button type="submit" className="btn btn-stop" disabled={t.busy}>
+          <button type="submit" className="btn primary" disabled={t.busy}>
             {t.busy ? "Saving…" : "Save"}
           </button>
         </form>
       ) : (
         <div className="live-head">
-          <Hum mood={t.paused ? "paused" : "listen"} level={level} size={52} />
+          <Orb status={t.paused ? "paused" : "rec"} level={level} size={12} />
           <div className="live-meta">
             <span className="live-source" title={status?.source ?? undefined}>
               {t.paused ? "Paused" : "Recording"} {status?.source && <span className="muted">· {status.source}</span>}
@@ -309,10 +306,10 @@ function Live({ t, status }: { t: Transcription; status: AppStatus | null }) {
           <IconButton title="Open the transcript file" onClick={() => api.openTranscript()}>
             <FolderIcon />
           </IconButton>
-          <button className="btn" title={`${t.paused ? "Resume" : "Pause"} (Space)`} onClick={t.togglePause}>
+          <button className="btn secondary" title={`${t.paused ? "Resume" : "Pause"} (Space)`} onClick={t.togglePause}>
             {t.paused ? <PlayIcon /> : <PauseIcon />} {t.paused ? "Resume" : "Pause"}
           </button>
-          <button className="btn btn-stop" title="Stop and save the transcript" onClick={() => t.setEnding(true)}>
+          <button className="btn primary" title="Stop and save the transcript" onClick={() => t.setEnding(true)}>
             <span className="stop-sq" /> End
           </button>
         </div>
@@ -357,7 +354,7 @@ function Preparing({ status }: { status: AppStatus | null }) {
   const p = status?.progress;
   return (
     <div className="empty-state">
-      <Hum mood="work" size={96} />
+      <Orb status="setup" size={14} />
       <p className="empty-title">{status?.message ?? "Preparing…"}</p>
       {p != null && (
         <div className="progress">

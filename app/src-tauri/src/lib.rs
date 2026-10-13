@@ -2,6 +2,7 @@ mod agent;
 mod audio;
 mod autostart;
 mod claude;
+mod commands;
 mod config;
 mod dsp;
 mod hover;
@@ -31,11 +32,12 @@ use config::Config;
 use transcriber::Speaker;
 use transcript::TranscriptFile;
 
-/// Room around the notch for things drawn outside it: the inverted "ear" corners
-/// (CSS --ear, 12px) and the reckless fire glow (`.notch.is-reckless::after`).
-const MARGIN: f64 = 28.0;
-/// Window size in logical pixels: the expanded panel (EXPANDED in App.tsx) + margin.
-const WINDOW_W: f64 = 680.0 + MARGIN * 2.0;
+/// Room around the notch for things drawn outside it: the open island's shadow
+/// and the glow of a finished run (`.island-clip` in notch.css).
+const MARGIN: f64 = 24.0;
+/// Window size in logical pixels: the widest and tallest open island
+/// (EXPANDED_W / EXPANDED_MAX_H in App.tsx) + margin.
+const WINDOW_W: f64 = 640.0 + MARGIN * 2.0;
 const WINDOW_H: f64 = 500.0 + MARGIN;
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -476,8 +478,11 @@ pub fn run() {
             agent::agent_open,
             agent::agent_close,
             agent::agent_send,
+            agent::agent_inject,
+            agent::agent_set_mode,
             agent::agent_stop,
             agent::agent_new,
+            agent::agent_commands,
             agent::agent_set_project,
             agent::agent_pick_folder,
             agent::agent_open_folder,

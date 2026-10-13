@@ -48,7 +48,7 @@ export function MicButton({ voice }: { voice: Voice }) {
   return (
     <button
       type="button"
-      className={`mic-btn ${voice.active ? "is-live" : ""}`}
+      className={`tool-btn ${voice.active ? "is-live" : ""}`}
       title={voice.active ? "Cancel the spoken prompt" : "Say the prompt — sent when you stop talking"}
       aria-label={voice.active ? "Cancel the spoken prompt" : "Speak a prompt"}
       onClick={voice.talk}

@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, StepIcon } from "./api";
+import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, SlashCommand, StepIcon } from "./api";
 import { Markdown } from "./Markdown";
-import { RecklessStrip } from "./Reckless";
+import { parseUsageReport, UsageCard } from "./Usage";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
 import {
   AlertIcon,
@@ -12,7 +12,6 @@ import {
   ChevronIcon,
   CopyIcon,
   CrossIcon,
-  FlameIcon,
   formatDuration,
   ImageIcon,
   formatSpan,
@@ -26,6 +25,10 @@ import {
 
 export type FeedItem =
   | { type: "prompt"; run: number; text: string }
+  /** written while Claude worked; it got it at its next step */
+  | { type: "followup"; run: number; text: string }
+  /** the skills Claude started with (shown when they differ from the last run's) */
+  | { type: "skills"; run: number; skills: string[] }
   | { type: "text"; run: number; text: string }
   | {
       type: "step";
@@ -59,6 +62,16 @@ function applyEvent(prev: FeedItem[], e: AgentEvent): FeedItem[] {
     case "start":
       next = [...prev, { type: "prompt", run: e.run, text: e.prompt }];
       break;
+    case "followup":
+      next = [...prev, { type: "followup", run: e.run, text: e.prompt }];
+      break;
+    case "init": {
+      // Claude lists them at every message; say it once, and again only when the skills change
+      const last = [...prev].reverse().find((i) => i.type === "skills");
+      if (last?.type === "skills" && last.skills.join("\n") === e.skills.join("\n")) return prev;
+      next = [...prev, { type: "skills", run: e.run, skills: e.skills }];
+      break;
+    }
     case "text":
       next = [...prev, { type: "text", run: e.run, text: e.text }];
       break;
@@ -140,6 +153,43 @@ export const MODELS: { id: string; label: string; title: string }[] = [
   { id: "haiku", label: "Haiku", title: "Latest Haiku: fastest, lightest on the limit" },
 ];
 
+/** handled by the app itself, not sent to Claude */
+const LOCAL_COMMANDS: SlashCommand[] = [
+  { name: "clear", description: "Start a new conversation (Ctrl+N)", hint: null, source: "notch" },
+  { name: "model", description: `Switch the model: ${MODELS.map((m) => m.label.toLowerCase()).join(", ")}`, hint: "[model]", source: "notch" },
+];
+
+/** `c`'s name (or the part after "plugin:") starts with `query` */
+function namedLike(c: SlashCommand, query: string) {
+  const name = c.name.toLowerCase();
+  const q = query.toLowerCase();
+  return name.startsWith(q) || name.slice(name.indexOf(":") + 1).startsWith(q);
+}
+
+/** Commands named like `query` first, then those containing it. */
+function matchCommands(all: SlashCommand[], query: string): SlashCommand[] {
+  const q = query.toLowerCase();
+  const rank = (c: SlashCommand) => {
+    if (namedLike(c, q)) return 0;
+    return c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q) ? 1 : 2;
+  };
+  return all
+    .map((c) => ({ c, r: rank(c) }))
+    .filter((x) => x.r < 2)
+    .sort((a, b) => a.r - b.r)
+    .map((x) => x.c);
+}
+
+/** "/review 12": Claude Code only runs it at the start of a message, never as a follow-up mid-run */
+const isCommand = (text: string) => /^\/\S/.test(text.trim());
+
+/** What goes out next from a queue: a command on its own, else the texts up to the next command (as one message). */
+function nextBatch(queued: string[]): [string[], string[]] {
+  const end = isCommand(queued[0] ?? "") ? 1 : queued.findIndex(isCommand);
+  const n = end < 0 ? queued.length : end;
+  return [queued.slice(0, n), queued.slice(n)];
+}
+
 function cachedLimit(): Limit | null {
   try {
     const l = JSON.parse(store.get("agent.limit") ?? "null") as Limit | null;
@@ -159,6 +209,10 @@ export function useAgents(expanded: boolean, viewing: number | null) {
   const [notices, setNotices] = useState<PerSession<AgentNotice>>({});
   /** finished while you weren't looking at it */
   const [unseen, setUnseen] = useState<PerSession<AgentNotice["tone"]>>({});
+  /** messages handed to Claude while it worked, in the run going on now */
+  const followups = useRef<PerSession<string[]>>({});
+  /** what you wrote for a run you then stopped: back into the chat bar */
+  const [restored, setRestored] = useState<PerSession<string[]>>({});
   const [mode, setModeState] = useState<AgentMode>(() => {
     const m = store.get("agent.mode");
     return m === "plan" || m === "acceptEdits" ? m : "reckless";
@@ -202,15 +256,26 @@ export function useAgents(expanded: boolean, viewing: number | null) {
             text: `${basename(project)}: ${e.label} — ${e.ok ? "finished" : "failed"} after ${formatSpan(e.duration_ms)}`,
           });
         }
+        if (e.kind === "followup") {
+          followups.current = { ...followups.current, [e.sid]: [...(followups.current[e.sid] ?? []), e.prompt] };
+        }
         if (e.kind !== "done") return;
         const notice = noticeFor(e, project);
         if (notice && !expanded) setNotices((prev) => ({ ...prev, [e.sid]: notice }));
         if (notice && (!expanded || viewing !== e.sid)) setUnseen((prev) => ({ ...prev, [e.sid]: notice.tone }));
-        // what was written while Claude worked goes out now, as one message
+        const handed = followups.current[e.sid] ?? [];
+        followups.current = { ...followups.current, [e.sid]: [] };
+        // what couldn't reach Claude in time goes out now, as one message; a command
+        // goes alone, and whatever follows it waits for that run to finish
         const queued = queues[e.sid] ?? [];
-        if (!e.stopped && queued.length > 0) {
-          setQueues((prev) => ({ ...prev, [e.sid]: [] }));
-          call(api.agentSend(e.sid, queued.join("\n\n"), mode, [], model || null));
+        const [next, rest] = e.stopped ? [[], []] : nextBatch(queued);
+        if (queued.length > 0) setQueues((prev) => ({ ...prev, [e.sid]: rest }));
+        if (e.stopped) {
+          // stopped: everything written for this run goes back into the chat bar
+          const back = [...handed, ...queued];
+          if (back.length > 0) setRestored((prev) => ({ ...prev, [e.sid]: [...(prev[e.sid] ?? []), ...back] }));
+        } else if (next.length > 0) {
+          call(api.agentSend(e.sid, next.join("\n\n"), mode, [], model || null));
         }
       }),
     ];
@@ -252,24 +317,43 @@ export function useAgents(expanded: boolean, viewing: number | null) {
     mode,
     model,
     limit,
+    /** how much of the plan is used (Claude Code's `/usage`) */
+    usage: status?.usage ?? null,
     error,
     flash,
     showFlash,
     setMode: (m: AgentMode) => {
       setModeState(m);
       store.set("agent.mode", m);
+      // Claude switches too if it's working
+      call(api.agentSetMode(m));
     },
     setModel: (m: string) => {
       setModelState(m);
       store.set("agent.model", m);
     },
-    /** sends now, or queues it while Claude is still working in that session */
+    /** sends now; while Claude works it gets it at its next step (or right after, if it's already answering; a /command always waits) */
     send: (sid: number, prompt: string, allow: string[] = []) => {
       const text = prompt.trim();
       if (!text) return;
-      if (session(sid)?.running) setQueues((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), text] }));
-      else call(api.agentSend(sid, text, mode, allow, model || null));
+      const busy = (id: number) => !!live.current.status?.sessions.find((s) => s.id === id)?.running;
+      if (!busy(sid)) {
+        call(api.agentSend(sid, text, mode, allow, model || null));
+        return;
+      }
+      if (isCommand(text)) {
+        setQueues((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), text] }));
+        return;
+      }
+      api.agentInject(sid, text).catch(() => {
+        // Claude isn't taking messages anymore: next in line, or now if it has already finished
+        if (busy(sid)) setQueues((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), text] }));
+        else call(api.agentSend(sid, text, live.current.mode, allow, live.current.model || null));
+      });
     },
+    /** messages to put back into the chat bar (after a stop); taking them clears them */
+    restored: (sid: number) => restored[sid] ?? [],
+    takeRestored: (sid: number) => setRestored((prev) => drop(prev, sid)),
     unqueue: (sid: number, index: number) => setQueues((prev) => ({ ...prev, [sid]: (prev[sid] ?? []).filter((_, i) => i !== index) })),
     stop: (sid: number) => call(api.agentStop(sid)),
     newChat: (sid: number) => {
@@ -291,6 +375,7 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       setQueues((prev) => drop(prev, sid));
       setNotices((prev) => drop(prev, sid));
       setUnseen((prev) => drop(prev, sid));
+      setRestored((prev) => drop(prev, sid));
       call(api.agentClose(sid));
     },
     moveTo: (sid: number, path: string) => {
@@ -346,6 +431,30 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   const [pickingImages, setPickingImages] = useState(false);
   const [dropping, setDropping] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  // "/" menu: shown while the draft is just "/name"
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [slashIndex, setSlashIndex] = useState(0);
+  /** picked with the arrows, not just the first match */
+  const [slashMoved, setSlashMoved] = useState(false);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1] ?? null;
+  const slashOn = slashQuery != null && focused && !slashDismissed;
+  const slashMatches = useMemo(() => {
+    if (slashQuery == null || !slashOn) return [];
+    const local = new Set(LOCAL_COMMANDS.map((c) => c.name));
+    return matchCommands([...LOCAL_COMMANDS, ...commands.filter((c) => !local.has(c.name))], slashQuery);
+  }, [slashOn, slashQuery, commands]);
+  useEffect(() => {
+    if (slashOn) api.agentCommands(sid).then(setCommands).catch(() => setCommands([]));
+  }, [slashOn, sid]);
+  useEffect(() => {
+    setSlashIndex(0);
+    setSlashMoved(false);
+  }, [slashQuery]);
+  const typingCommand = slashQuery != null;
+  useEffect(() => {
+    if (!typingCommand) setSlashDismissed(false);
+  }, [typingCommand]);
 
   // keep the notch open while typing, choosing a model or picking images
   const hold = modelOpen || focused || pickingImages;
@@ -353,6 +462,15 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   useEffect(() => () => onHold(false), [onHold]);
 
   useEffect(() => store.set(draftKey, draft), [draft, draftKey]);
+
+  // stopped Claude: what you wrote for that run comes back, ready to edit and send again
+  const restored = agents.restored(sid);
+  useEffect(() => {
+    if (restored.length === 0) return;
+    setDraft((prev) => [...restored, prev.trim()].filter(Boolean).join("\n\n"));
+    agents.takeRestored(sid);
+    inputRef.current?.focus();
+  }, [restored, sid]);
 
   // autosize the composer (1–5 lines)
   useLayoutEffect(() => {
@@ -396,8 +514,27 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
     stick.current = true;
     agents.send(sid, text);
   };
+  /** /clear and /model are the app's own; true when `text` was one of them */
+  const runLocal = (text: string) => {
+    const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
+    if (!m) return false;
+    const [, name, arg] = m;
+    if (name === "clear" || name === "new") {
+      if (!running) agents.newChat(sid);
+    } else if (name === "model") {
+      const want = arg.trim().toLowerCase();
+      const known = MODELS.find((x) => x.id === want || x.label.toLowerCase() === want);
+      if (!want) setModelOpen(true);
+      else agents.setModel(known ? known.id : arg.trim());
+    } else return false;
+    return true;
+  };
   const submit = () => {
     if (!draft.trim() && images.length === 0) return;
+    if (images.length === 0 && runLocal(draft)) {
+      setDraft("");
+      return;
+    }
     send(withImages(draft, images.map((i) => i.path)));
     setDraft("");
     images.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
@@ -424,6 +561,15 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
         .catch((err) => setImageError(String(err)));
     }
   };
+  /** Enter runs a command that takes nothing; otherwise (and on Tab) it goes into the chat bar for its arguments */
+  const pickCommand = (c: SlashCommand, run: boolean) => {
+    if (run && !c.hint && images.length === 0) {
+      if (!runLocal(`/${c.name}`)) send(`/${c.name}`);
+      setDraft("");
+    } else setDraft(`/${c.name} `);
+    inputRef.current?.focus();
+  };
+
   const pickImages = async () => {
     setImageError(null);
     setPickingImages(true);
@@ -523,7 +669,7 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
                   </button>
                 </div>
               ))}
-              <span className="queue-note">Sent as soon as Claude finishes</span>
+              <span className="queue-note">Sent as soon as Claude finishes (commands always wait for that)</span>
             </div>
           )}
         </div>
@@ -544,15 +690,14 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
       {agents.error && <p className="error-text">{agents.error}</p>}
       {imageError && <p className="error-text">{imageError}</p>}
 
-      {reckless && <RecklessStrip running={running} />}
-
       <VoiceStrip voice={voice} />
 
       {/* ---- what's happening ---- */}
       {running && (
-        <div className="run-strip">
+        <div className={`run-strip ${reckless ? "is-auto" : ""}`}>
           <span className="mini-spinner" />
-          <span className="run-current">{session.current ?? "Thinking…"}</span>
+          {reckless && <span className="auto-tag">Auto</span>}
+          <span className="run-current shimmer">{session.current ?? "Thinking…"}</span>
           {stepElapsed && (
             <span className="run-step-time" title="How long this step has been running">
               {stepElapsed}
@@ -561,8 +706,8 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
           <span className="run-time" title="Since the message was sent">
             {stepElapsed ? `total ${elapsed}` : elapsed}
           </span>
-          <button className="run-stop" title="Stop (Esc)" onClick={() => agents.stop(sid)}>
-            <span className="stop-sq" /> Stop <kbd>Esc</kbd>
+          <button className="btn secondary sm" title="Stop (Esc)" onClick={() => agents.stop(sid)}>
+            Stop <span className="kbd">Esc</span>
           </button>
         </div>
       )}
@@ -597,68 +742,139 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
             ))}
           </div>
         )}
-        <textarea
-          onPaste={onPaste}
-          ref={inputRef}
-          rows={1}
-          value={draft}
-          placeholder={
-            running
-              ? "Add more details — sent when Claude finishes, nothing is interrupted"
-              : lastPrompt
-                ? "Reply, or ask for something else…"
-                : "Ask Claude to build, fix or explain something…"
-          }
-          onChange={(e) => setDraft(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            } else if (e.key === "Escape" && running) {
-              // here Esc stops Claude instead of closing the notch
-              e.preventDefault();
-              e.stopPropagation();
-              agents.stop(sid);
-            } else if (e.key === "ArrowUp" && !draft && lastPrompt) {
-              e.preventDefault();
-              setDraft(lastPrompt);
+        {slashMatches.length > 0 && (
+          <SlashMenu commands={slashMatches} index={Math.min(slashIndex, slashMatches.length - 1)} onHover={setSlashIndex} onPick={(c) => pickCommand(c, true)} />
+        )}
+        <div className="chat-bar">
+          <textarea
+            onPaste={onPaste}
+            ref={inputRef}
+            rows={1}
+            value={draft}
+            placeholder={
+              running
+                ? "Add more details — Claude reads it at its next step"
+                : lastPrompt
+                  ? "Reply, or ask for something else…"
+                  : "Ask Claude to build, fix or explain something…"
             }
-          }}
-        />
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={(e) => {
+              if (slashMatches.length > 0) {
+                const n = slashMatches.length;
+                const move = (i: number) => {
+                  e.preventDefault();
+                  setSlashIndex(i);
+                  setSlashMoved(true);
+                };
+                if (e.key === "ArrowDown") return move((slashIndex + 1) % n);
+                if (e.key === "ArrowUp") return move((slashIndex - 1 + n) % n);
+                const pick = slashMatches[Math.min(slashIndex, n - 1)];
+                // Enter on a command the menu doesn't know yet ("/usage" before Claude's
+                // first reply lists its own) sends it as typed, not a match by description
+                const typed = e.key === "Enter" && !slashMoved && !namedLike(pick, slashQuery ?? "");
+                if (!typed && ((e.key === "Enter" && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey && !e.ctrlKey))) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return pickCommand(pick, e.key === "Enter");
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return setSlashDismissed(true);
+                }
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              } else if (e.key === "Escape" && running) {
+                // here Esc stops Claude instead of closing the notch
+                e.preventDefault();
+                e.stopPropagation();
+                agents.stop(sid);
+              } else if (e.key === "ArrowUp" && !draft && lastPrompt) {
+                e.preventDefault();
+                setDraft(lastPrompt);
+              }
+            }}
+          />
+          <div className="chat-tools" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="tool-btn"
+              title="Attach images (or paste / drop them here)"
+              aria-label="Attach images"
+              disabled={pickingImages}
+              onClick={pickImages}
+            >
+              <ImageIcon />
+            </button>
+
+            <MicButton voice={voice} />
+
+            {running && !draft.trim() && images.length === 0 ? (
+              <button type="button" className="send-btn is-stop" title="Stop (Esc)" aria-label="Stop" onClick={() => agents.stop(sid)}>
+                <span className="stop-sq" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className={`send-btn ${running ? "is-queue" : ""}`}
+                title={running ? "Send (Enter): Claude reads it at its next step" : "Send (Enter)"}
+                aria-label="Send"
+                disabled={!draft.trim() && images.length === 0}
+              >
+                <SendIcon />
+              </button>
+            )}
+          </div>
+        </div>
         <div className="composer-foot" onClick={(e) => e.stopPropagation()}>
-          <div className="segmented modes" role="radiogroup" aria-label="What Claude may do">
+          <div className="seg modes" role="radiogroup" aria-label="What Claude may do">
             {MODES.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 role="radio"
                 aria-checked={agents.mode === m.id}
-                className={`${agents.mode === m.id ? "is-active" : ""} mode-${m.id}`}
+                className={`${agents.mode === m.id ? "on" : ""} mode-${m.id}`}
                 title={m.title}
                 onClick={() => agents.setMode(m.id)}
               >
-                {m.icon === "flame" ? <FlameIcon /> : <StepGlyph icon={m.icon} />}
+                {m.icon === "flame" ? <span className="auto-dot" /> : <StepGlyph icon={m.icon} />}
                 {m.label}
               </button>
             ))}
           </div>
 
+          <span className="mode-hint">{running && draft.trim() ? "Enter sends it — Claude takes it in at its next step" : modeInfo.hint}</span>
+
+          {session.caveman && (
+            <span
+              className="caveman-badge"
+              title={`Caveman ${session.caveman}: Claude answers tersely and uses far fewer output tokens. Code, commits and security notes stay normal. "/caveman lite" or "stop caveman" changes it for one message.`}
+            >
+              Caveman {session.caveman}
+            </span>
+          )}
+
           <div className="model">
             <button
               type="button"
-              className={`model-btn ${modelOpen ? "is-open" : ""}`}
+              className={`model-btn ${modelOpen ? "open" : ""}`}
               title={`Model${session.model ? ` — last run: ${session.model}` : ""}`}
               onClick={() => setModelOpen(!modelOpen)}
             >
-              {MODELS.find((m) => m.id === agents.model)?.label ?? agents.model}
+              <span className="model-dot" />
+              <span className="model-name">{MODELS.find((m) => m.id === agents.model)?.label ?? agents.model}</span>
               <ChevronIcon open={!modelOpen} />
             </button>
             {modelOpen && (
               <>
                 <div className="menu-scrim" onClick={() => setModelOpen(false)} />
-                <div className="menu menu-up" role="menu">
+                <div className="menu menu-up menu-right" role="menu">
                   {MODELS.map((m) => (
                     <button
                       key={m.id}
@@ -679,39 +895,39 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
               </>
             )}
           </div>
-
-          <span className="mode-hint">{running && draft.trim() ? "Enter queues it — Claude keeps going" : modeInfo.hint}</span>
-
-          <button
-            type="button"
-            className="mic-btn"
-            title="Attach images (or paste / drop them here)"
-            aria-label="Attach images"
-            disabled={pickingImages}
-            onClick={pickImages}
-          >
-            <ImageIcon />
-          </button>
-
-          <MicButton voice={voice} />
-
-          {running && !draft.trim() && images.length === 0 ? (
-            <button type="button" className="send-btn is-stop" title="Stop (Esc)" aria-label="Stop" onClick={() => agents.stop(sid)}>
-              <span className="stop-sq" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              className={`send-btn ${running ? "is-queue" : ""}`}
-              title={running ? "Queue (Enter): sent when Claude finishes" : "Send (Enter)"}
-              aria-label="Send"
-              disabled={!draft.trim() && images.length === 0}
-            >
-              <SendIcon />
-            </button>
-          )}
         </div>
       </form>
+    </div>
+  );
+}
+
+function SlashMenu({ commands, index, onHover, onPick }: { commands: SlashCommand[]; index: number; onHover: (i: number) => void; onPick: (c: SlashCommand) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.querySelector(".is-current")?.scrollIntoView({ block: "nearest" });
+  }, [index]);
+  return (
+    <div className="menu menu-up slash-menu" role="listbox" ref={ref} onClick={(e) => e.stopPropagation()}>
+      {commands.map((c, i) => (
+        <button
+          key={c.name}
+          type="button"
+          role="option"
+          aria-selected={i === index}
+          className={`menu-item ${i === index ? "is-current" : ""}`}
+          // keep the focus in the chat bar, or the menu closes before the click lands
+          onMouseDown={(e) => e.preventDefault()}
+          onMouseEnter={() => onHover(i)}
+          onClick={() => onPick(c)}
+        >
+          <span className="slash-head">
+            <span className="menu-title">/{c.name}</span>
+            {c.hint && <span className="slash-hint">{c.hint}</span>}
+            <span className="slash-source">{c.source}</span>
+          </span>
+          {c.description && <span className="menu-sub">{c.description}</span>}
+        </button>
+      ))}
     </div>
   );
 }
@@ -727,6 +943,9 @@ function KeyHints() {
       </span>
       <span>
         <kbd>↑</kbd> last message
+      </span>
+      <span>
+        <kbd>/</kbd> commands
       </span>
       <span>
         <kbd>Esc</kbd> stop
@@ -835,6 +1054,8 @@ function RunBlock({ run, latest, canAct, onAllow, onRetry }: { run: Run; latest:
               <GroupRow key={row.key} icon={row.icon} steps={row.steps} />
             ) : (
               <Fragment key={row.key}>
+                {row.item.type === "followup" && <Prompt text={row.item.text} />}
+                {row.item.type === "skills" && <SkillsRow skills={row.item.skills} />}
                 {row.item.type === "text" && <RichText text={row.item.text} />}
                 {row.item.type === "step" && <StepRow step={row.item} />}
               </Fragment>
@@ -856,6 +1077,33 @@ function Prompt({ text }: { text: string }) {
             <span key={p} className="attachment" title={p}>
               <ImageIcon />
               <span className="attachment-name">{basename(p)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The skills Claude started with: one line, the full list one click away. */
+function SkillsRow({ skills }: { skills: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="step step-plan is-ok">
+      <button className="step-head" title={skills.join("\n")} onClick={() => setOpen(!open)}>
+        <span className="step-icon">
+          <StepGlyph icon="plan" />
+        </span>
+        <span className="step-label">
+          Started with {skills.length} skill{skills.length === 1 ? "" : "s"} · {skills.join(", ")}
+        </span>
+        <ChevronIcon open={open} />
+      </button>
+      {open && (
+        <div className="step-body skills-list">
+          {skills.map((s) => (
+            <span key={s} className="code-chip" title={`/${s}`}>
+              {s}
             </span>
           ))}
         </div>
@@ -942,20 +1190,22 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
     <>
       {done.denied.length > 0 && (
         <div className="denied">
-          <div className="denied-head">
-            <AlertIcon /> Claude wasn't allowed to:
+          <div className="who-row">
+            <AlertIcon /> <span className="n">Claude</span> needs permission
           </div>
-          <ul>
+          <div className="denied-list">
             {done.denied.map((d) => (
-              <li key={d.rule} title={d.rule}>
+              <span key={d.rule} className="code-chip" title={d.rule}>
                 {d.label}
-              </li>
+              </span>
             ))}
-          </ul>
+          </div>
           {canAct && (
-            <button className="btn btn-accent btn-sm" onClick={() => onAllow(done.denied.map((d) => d.rule))}>
-              Allow and continue
-            </button>
+            <div className="actions">
+              <button className="btn primary sm" onClick={() => onAllow(done.denied.map((d) => d.rule))}>
+                Allow and continue
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -969,7 +1219,7 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
               : (done.message ?? "Something went wrong")}
         </span>
         {canAct && (done.stopped || !done.ok) && (
-          <button className="mini-btn" title="Send the same message again" onClick={onRetry}>
+          <button className="btn secondary xs" title="Send the same message again" onClick={onRetry}>
             <RetryIcon /> Retry
           </button>
         )}
@@ -978,12 +1228,13 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
   );
 }
 
-/** Claude's text, as Markdown. */
+/** Claude's text, as Markdown; `/usage`'s report as a card. */
 function RichText({ text }: { text: string }) {
+  const usage = useMemo(() => parseUsageReport(text), [text]);
   return (
-    <div className="answer">
+    <div className={`answer ${usage ? "is-usage" : ""}`}>
       <CopyButton text={text} />
-      <Markdown text={text} />
+      {usage ? <UsageCard report={usage} /> : <Markdown text={text} />}
     </div>
   );
 }

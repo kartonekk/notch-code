@@ -28,6 +28,12 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_POLL: Duration = Duration::from_secs(3);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 const INSTALL_COMMAND: &str = "irm https://claude.ai/install.ps1 | iex";
+const PLUGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// Caveman plugin: terse answers, far fewer output tokens.
+const CAVEMAN_ID: &str = "caveman@caveman";
+const CAVEMAN_MARKETPLACE: &str = "JuliusBrussee/caveman";
+/// Caveman level for the app's own Claude runs (`CAVEMAN_DEFAULT_MODE`).
+pub const CAVEMAN_MODE: &str = "ultra";
 const EXPIRED: &str = "Claude's sign-in has expired. Sign in again.";
 
 #[cfg(windows)]
@@ -191,7 +197,10 @@ fn check(app: &AppHandle) {
             message: Some(EXPIRED.into()),
             ..Default::default()
         },
-        Ok(Some(plan)) => ClaudeStatus { state: AuthState::SignedIn, plan, ..Default::default() },
+        Ok(Some(plan)) => {
+            crate::agent::refresh_usage(app);
+            ClaudeStatus { state: AuthState::SignedIn, plan, ..Default::default() }
+        }
         Ok(None) => ClaudeStatus {
             state: AuthState::SignedOut,
             message: Some("Claude needs you to sign in again.".into()),
@@ -246,6 +255,71 @@ fn install(app: &AppHandle) {
                 ..Default::default()
             });
         }
+    }
+}
+
+/// The caveman level the app's runs should get: the plugin is enabled in
+/// `~/.claude/settings.json`. Each run then confirms it (see `caveman_level`).
+pub fn caveman_expected() -> Option<String> {
+    let settings = dirs::home_dir()?.join(".claude").join("settings.json");
+    let settings: Value = serde_json::from_str(&std::fs::read_to_string(settings).ok()?).ok()?;
+    let enabled = settings.pointer("/enabledPlugins").and_then(|p| p.get(CAVEMAN_ID)).and_then(Value::as_bool) == Some(true);
+    enabled.then(|| CAVEMAN_MODE.to_string())
+}
+
+/// The level in a caveman hook's output: "CAVEMAN MODE ACTIVE — level: ultra"
+/// (session start) or "CAVEMAN MODE ACTIVE (lite)" (each prompt).
+pub fn caveman_level(output: &str) -> Option<String> {
+    const MARK: &str = "CAVEMAN MODE ACTIVE";
+    let rest = &output[output.find(MARK)? + MARK.len()..];
+    let rest = match rest.strip_prefix(" (") {
+        Some(r) => r,
+        // the dash may arrive mangled ("�", "â€”"), so only its length is checked
+        None => rest.split_once("level:").filter(|(before, _)| before.chars().count() <= 8)?.1,
+    };
+    let level: String = rest.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    (!level.is_empty()).then_some(level)
+}
+
+/// Installs the caveman plugin into Claude Code unless it is already there
+/// (installed but disabled by the user counts as there).
+fn ensure_caveman(cli: &Path) {
+    let result = (|| -> Result<bool, String> {
+        let mut child = hidden(cli)
+            .args(["plugin", "list", "--json"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let mut stdout = child.stdout.take().ok_or("no output")?;
+        let reader = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stdout, &mut buf);
+            buf
+        });
+        wait_for(&mut child, STATUS_TIMEOUT)?;
+        let plugins: Vec<Value> = serde_json::from_slice(&reader.join().unwrap_or_default()).map_err(|e| e.to_string())?;
+        if plugins.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(CAVEMAN_ID)) {
+            return Ok(false);
+        }
+        let log = File::create(paths::data_dir().join("caveman-install.log")).map_err(|e| e.to_string())?;
+        let log_err = log.try_clone().map_err(|e| e.to_string())?;
+        let mut child = hidden(cli)
+            .args(["plugin", "install", "caveman", "--marketplace", CAVEMAN_MARKETPLACE, "--scope", "user"])
+            .stdout(log)
+            .stderr(log_err)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let status = wait_for(&mut child, PLUGIN_TIMEOUT)?;
+        if !status.success() {
+            return Err(format!("plugin install exited with {status}"));
+        }
+        Ok(true)
+    })();
+    match result {
+        Ok(true) => paths::log("claude: caveman plugin installed"),
+        Ok(false) => {}
+        Err(e) => paths::log(format!("claude: caveman plugin install failed: {e}")),
     }
 }
 
@@ -403,6 +477,46 @@ fn probe(app: &AppHandle, cli: &Path) {
     }
 }
 
+/// How much of the plan is used, from the CLI's own `/usage` command: it runs
+/// locally (no model request, no tokens) and reads the account's usage.
+/// (current 5-hour session, current week), as 0..1.
+pub fn usage(cli: &Path) -> Option<(f64, Option<f64>)> {
+    let mut child = hidden(cli)
+        .args(["-p", "--output-format", "text", "--no-session-persistence", "--strict-mcp-config"])
+        .current_dir(paths::data_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"/usage");
+    }
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut text);
+        text
+    });
+    let _ = wait_for(&mut child, PROBE_TIMEOUT);
+    let text = reader.join().unwrap_or_default();
+    let parsed = parse_usage(&text);
+    if parsed.is_none() {
+        paths::log(format!("claude usage: unreadable: {}", text.lines().next().unwrap_or("").trim()));
+    }
+    parsed
+}
+
+/// "Current session: 37% used · resets …" / "Current week (all models): 42% used · …"
+fn parse_usage(text: &str) -> Option<(f64, Option<f64>)> {
+    let percent = |prefix: &str| {
+        let line = text.lines().map(str::trim).find(|l| l.starts_with(prefix))?;
+        let n = line[prefix.len()..].trim_start().split('%').next()?.trim();
+        n.parse::<f64>().ok().map(|p| p / 100.0)
+    };
+    Some((percent("Current session:")?, percent("Current week (all models):")))
+}
+
 // ---------------------------------------------------------------- lifecycle
 
 /// Installs the CLI if needed, then re-checks the sign-in for the app's lifetime.
@@ -410,6 +524,7 @@ fn probe(app: &AppHandle, cli: &Path) {
 pub fn spawn_monitor(app: AppHandle) {
     std::thread::spawn(move || {
         let mut first = true;
+        let mut caveman_checked = false;
         loop {
             exclusive(&app, || {
                 if find_cli().is_none() {
@@ -418,8 +533,12 @@ pub fn spawn_monitor(app: AppHandle) {
                     check(&app);
                 }
                 let signed_in = app.state::<Claude>().status.lock().unwrap().state == AuthState::SignedIn;
-                if first && signed_in {
-                    if let Some(cli) = find_cli() {
+                if let Some(cli) = find_cli() {
+                    if !caveman_checked {
+                        ensure_caveman(&cli);
+                        caveman_checked = true;
+                    }
+                    if first && signed_in {
                         probe(&app, &cli);
                     }
                 }
@@ -457,4 +576,27 @@ pub fn claude_login(app: AppHandle, window: bool) {
 #[tauri::command]
 pub fn claude_install(app: AppHandle) {
     std::thread::spawn(move || exclusive(&app, || install(&app)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{caveman_level, parse_usage};
+
+    #[test]
+    fn reads_usage() {
+        let text = "You are currently using your subscription\n\nCurrent session: 37% used \u{FFFD} resets Oct 13, 5:30pm\nCurrent week (all models): 42% used · resets Oct 19\n";
+        assert_eq!(parse_usage(text), Some((0.37, Some(0.42))));
+        assert_eq!(parse_usage("Current session: 5% used"), Some((0.05, None)));
+        assert_eq!(parse_usage("Not logged in"), None);
+    }
+
+    #[test]
+    fn reads_caveman_level() {
+        assert_eq!(caveman_level("CAVEMAN MODE ACTIVE — level: ultra\n\nRespond terse").as_deref(), Some("ultra"));
+        assert_eq!(caveman_level("CAVEMAN MODE ACTIVE \u{FFFD} level: ultra").as_deref(), Some("ultra"));
+        assert_eq!(caveman_level("CAVEMAN MODE ACTIVE â€” level: lite").as_deref(), Some("lite"));
+        assert_eq!(caveman_level("{\"additionalContext\":\"CAVEMAN MODE ACTIVE (wenyan-full). Drop\"}").as_deref(), Some("wenyan-full"));
+        assert_eq!(caveman_level("CAVEMAN MODE ACTIVE. Rules: … level: x"), None);
+        assert_eq!(caveman_level("VERDICT-FIRST MODE ACTIVE."), None);
+    }
 }
