@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { api, AppStatus, SessionStatus } from "./api";
+import { api, AppStatus, Media, Provider, PROVIDER_NAME, SessionStatus } from "./api";
 import type { View } from "./App";
 import type { Agents, FeedItem } from "./CodeTab";
+import { NowPlaying } from "./Media";
 import { SPEAKER_LABEL, Transcription } from "./TranscribeTab";
-import { basename, formatDuration, hue, MicIcon, Mini, PauseIcon, PlayIcon, PlusIcon, Status, StepGlyph } from "./ui";
+import { AgentTag, basename, formatDuration, hue, MicIcon, Mini, PauseIcon, PlayIcon, PlusIcon, Status, StepGlyph } from "./ui";
 
 /** what the pill grid on the right holds: the transcriber, every session, a few recent folders, + */
 export function homePills(agents: Agents) {
@@ -15,8 +16,9 @@ export function homePills(agents: Agents) {
 
 /**
  * The overview, one look at everything. On the left, a card says what's going
- * on right now and offers the next step; on the right, one pill per thing you
- * can jump into (transcriber, each Claude session, recent folders).
+ * on right now and offers the next step, with what's playing under it; on the
+ * right, one pill per thing you can jump into (transcriber, each agent session,
+ * recent folders).
  * Right-click a folder's pill for what else you can do with it.
  */
 export function Home({
@@ -29,6 +31,7 @@ export function Home({
   onOpen,
   onPick,
   onHold,
+  media,
 }: {
   rec: Transcription;
   status: AppStatus | null;
@@ -36,9 +39,10 @@ export function Home({
   now: number;
   picking: boolean;
   onView: (v: View) => void;
-  onOpen: (path: string) => void;
+  onOpen: (path: string, provider?: Provider) => void;
   onPick: () => void;
   onHold: (hold: boolean) => void;
+  media: Media | null;
 }) {
   const { recent } = homePills(agents);
   const homeRef = useRef<HTMLDivElement>(null);
@@ -60,7 +64,10 @@ export function Home({
   };
   return (
     <div className="overview" ref={homeRef}>
-      <Hero rec={rec} status={status} agents={agents} now={now} onView={onView} onPick={onPick} />
+      <div className="overview-left">
+        <Hero rec={rec} status={status} agents={agents} now={now} onView={onView} onPick={onPick} />
+        {media && <NowPlaying media={media} />}
+      </div>
 
       <section className="card pills-card">
         <div className="pills">
@@ -92,7 +99,7 @@ export function Home({
               ghost
               mini={<Mini hue={hue(p)} />}
               label={basename(p)}
-              title={`Open a Claude session in ${p}`}
+              title={`Open a ${PROVIDER_NAME[agents.defaultProvider]} session in ${p}\nRight-click for more`}
               onClick={() => onOpen(p)}
               onContextMenu={(e) => openMenu(e, p)}
             />
@@ -106,7 +113,7 @@ export function Home({
                 </span>
               }
               label={picking ? "Choosing…" : "New session"}
-              title="Pick the folder Claude works in (Ctrl+T)"
+              title={`Pick the folder ${PROVIDER_NAME[agents.defaultProvider]} works in (Ctrl+T)`}
               onClick={onPick}
             />
           )}
@@ -125,17 +132,20 @@ export function Home({
             }}
           />
           <div className="menu menu-context" role="menu" style={{ left: menu.x, top: menu.y }}>
-            <button
-              className="menu-item"
-              role="menuitem"
-              onClick={() => {
-                setMenu(null);
-                onOpen(menu.path);
-              }}
-            >
-              <span className="menu-title">Open a Claude session here</span>
-              <span className="menu-sub">{menu.path}</span>
-            </button>
+            {(["claude", "gemini"] as const).map((p) => (
+              <button
+                key={p}
+                className="menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenu(null);
+                  onOpen(menu.path, p);
+                }}
+              >
+                <span className="menu-title">Open with {PROVIDER_NAME[p]}</span>
+                {p === agents.defaultProvider && <span className="menu-sub">{menu.path}</span>}
+              </button>
+            ))}
             <div className="menu-sep" />
             <button
               className="menu-item is-danger"
@@ -237,7 +247,10 @@ function Hero({
       <>
         <span className="dot" style={{ "--h": hue(busy.project) } as CSSProperties} />
         <b className="name">{basename(busy.project)}</b>
-        <span className="tool">Claude Code{agents.mode === "reckless" ? " · Auto" : ""}</span>
+        <span className="tool">
+          {busy.provider === "gemini" ? "Gemini CLI" : "Claude Code"}
+          {agents.mode === "reckless" ? " · Auto" : ""}
+        </span>
         <span className="count">
           {agents.running.length > 1 ? `${agents.running.length} working · ` : ""}
           {busy.started_at ? formatDuration(now - busy.started_at) : ""}
@@ -309,6 +322,7 @@ function Hero({
     );
   } else {
     const target = agents.sessions[0];
+    const agent = target ? PROVIDER_NAME[target.provider] : PROVIDER_NAME[agents.defaultProvider];
     glow = "idle";
     who = (
       <>
@@ -317,14 +331,14 @@ function Hero({
         <span className="tool">ready</span>
       </>
     );
-    body = <p className="hero-line muted">Record a meeting, or ask Claude to do something.</p>;
+    body = <p className="hero-line muted">Record a meeting, or ask {agent} to do something.</p>;
     actions = (
       <>
         <button className="btn primary" onClick={() => onView("transcribe")}>
           <span className="rec-dot" /> Transcribe
         </button>
         <button className="btn secondary" onClick={() => (target ? onView(target.id) : onPick())}>
-          Ask Claude
+          Ask {agent}
         </button>
       </>
     );
@@ -355,7 +369,8 @@ function SessionPill({ s, agents, now, index, onClick }: { s: SessionStatus; age
     <Pill
       mini={<Mini hue={hue(s.project)} running={s.running} />}
       label={basename(s.project)}
-      title={`${basename(s.project)} — ${sub}${queued ? ` · ${queued} queued` : ""}${index < 9 ? ` (Ctrl+${index + 1})` : ""}\n${s.project}`}
+      title={`${basename(s.project)} · ${PROVIDER_NAME[s.provider]} — ${sub}${queued ? ` · ${queued} queued` : ""}${index < 9 ? ` (Ctrl+${index + 1})` : ""}\n${s.project}`}
+      tag={<AgentTag provider={s.provider} />}
       tone={s.running ? "busy" : tone}
       badge={queued || undefined}
       tinted
@@ -374,12 +389,15 @@ function Pill({
   ghost,
   tinted,
   style,
+  tag,
   onClick,
   onContextMenu,
 }: {
   mini: ReactNode;
   label: string;
   title: string;
+  /** after the label, e.g. which agent it is */
+  tag?: ReactNode;
   tone?: "rec" | "busy" | "ok" | "warn" | "error";
   badge?: number;
   ghost?: boolean;
@@ -398,6 +416,7 @@ function Pill({
     >
       {mini}
       <span className="lbl">{label}</span>
+      {tag}
       {tone && tone !== "busy" && tone !== "rec" && <span className={`pill-badge is-${tone}`} />}
       {badge != null && <span className="pill-count">{badge}</span>}
     </button>

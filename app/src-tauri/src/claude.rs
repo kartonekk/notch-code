@@ -61,8 +61,6 @@ pub struct ClaudeStatus {
     pub message: Option<String>,
     /// Subscription reported by the CLI ("pro", "max", …).
     pub plan: Option<String>,
-    /// A sign-in in the background didn't finish: offer the visible sign-in window.
-    pub suggest_window: bool,
 }
 
 #[derive(Default)]
@@ -86,7 +84,7 @@ struct AuthJson {
 
 // ---------------------------------------------------------------- process helpers
 
-fn hidden(program: impl AsRef<std::ffi::OsStr>) -> Command {
+pub(crate) fn hidden(program: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut cmd = Command::new(program);
     cmd.stdin(Stdio::null());
     #[cfg(windows)]
@@ -98,7 +96,7 @@ fn hidden(program: impl AsRef<std::ffi::OsStr>) -> Command {
 }
 
 /// Waits for `child` to exit; kills it after `timeout`.
-fn wait_for(child: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
+pub(crate) fn wait_for(child: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
@@ -323,10 +321,10 @@ fn ensure_caveman(cli: &Path) {
     }
 }
 
-/// Starts `claude auth login` and waits until the CLI reports a sign-in.
-/// Hidden, it just opens the browser; `window` shows the CLI's own console,
-/// for when the hidden sign-in can't complete.
-fn login(app: &AppHandle, window: bool) {
+/// Starts `claude auth login` in its own console window and waits until the CLI
+/// reports a sign-in. It needs a real console: without one its UI can't start
+/// (no TTY for the code prompt) and the sign-in silently never finishes.
+fn login(app: &AppHandle) {
     let Some(cli) = find_cli() else {
         install(app);
         return;
@@ -351,12 +349,7 @@ fn login(app: &AppHandle, window: bool) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        if window {
-            cmd.creation_flags(CREATE_NEW_CONSOLE);
-        } else {
-            cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        cmd.creation_flags(CREATE_NEW_CONSOLE);
     }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -405,9 +398,22 @@ fn login(app: &AppHandle, window: bool) {
     set(app, ClaudeStatus {
         state: AuthState::SignedOut,
         message: Some("Sign-in didn't finish.".into()),
-        suggest_window: !window,
         ..Default::default()
     });
+}
+
+fn logout(app: &AppHandle) {
+    let Some(cli) = find_cli() else { return check(app) };
+    let ok = hidden(&cli).args(["auth", "logout"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
+    if !ok {
+        return set(app, ClaudeStatus {
+            state: AuthState::Error,
+            message: Some("Couldn't sign out of Claude.".into()),
+            ..Default::default()
+        });
+    }
+    app.state::<Claude>().auth_failed.store(false, Ordering::SeqCst);
+    check(app);
 }
 
 /// A coding request failed to authenticate: remind the user to sign in.
@@ -569,8 +575,19 @@ pub fn claude_refresh(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn claude_login(app: AppHandle, window: bool) {
-    std::thread::spawn(move || exclusive(&app, || login(&app, window)));
+pub fn claude_login(app: AppHandle) {
+    std::thread::spawn(move || exclusive(&app, || login(&app)));
+}
+
+#[tauri::command]
+pub fn claude_logout(app: AppHandle) {
+    std::thread::spawn(move || exclusive(&app, || logout(&app)));
+}
+
+/// Checks the sign-in now (Settings' "Check again").
+#[tauri::command]
+pub fn claude_recheck(app: AppHandle) {
+    std::thread::spawn(move || exclusive(&app, || check(&app)));
 }
 
 #[tauri::command]

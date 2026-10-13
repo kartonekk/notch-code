@@ -2808,3 +2808,444 @@ kbd,
     transition: none !important;
   }
 }
+
+/* ---------------------------------------------------------------- home: left column */
+
+.overview-left {
+  flex: 0 0 322px;
+  width: 322px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.overview-left .hero {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+/* what's playing, under the status card */
+.now-playing {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: 66px;
+  padding: 8px 10px 8px 8px;
+  border-radius: 18px;
+}
+.np-art {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--fill);
+}
+.np-art.is-empty {
+  display: grid;
+  place-items: center;
+  color: var(--dim-3);
+}
+.now-playing.is-playing .np-art {
+  box-shadow: 0 0 0 1px var(--line), 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.np-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.np-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.np-sub {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.np-artist {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-app {
+  flex: none;
+  color: var(--dim-4);
+}
+.np-artist + .np-app::before {
+  content: "· ";
+}
+.np-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.np-bar {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.np-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dim);
+  transition: width 1s linear;
+}
+.now-playing.is-playing .np-bar i {
+  background: var(--green-2);
+}
+.np-clock {
+  flex: none;
+  font: 500 10px var(--mono);
+  color: var(--dim-4);
+}
+.np-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.np-btn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--dim);
+  transition:
+    background 120ms,
+    color 120ms,
+    transform 80ms;
+}
+.np-btn:hover:not(:disabled) {
+  background: var(--fill);
+  color: var(--ink);
+}
+.np-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+.np-btn:disabled {
+  opacity: 0.3;
+}
+.np-btn.np-play {
+  width: 30px;
+  height: 30px;
+  background: var(--ink);
+  color: #0b0c0e;
+}
+.np-btn.np-play:hover {
+  background: #fff;
+  color: #0b0c0e;
+}
+
+/* ---------------------------------------------------------------- agents */
+
+.agent-tag {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  font: 700 8.5px var(--font);
+  line-height: 1;
+}
+.agent-tag.is-claude {
+  background: rgba(217, 119, 87, 0.18);
+  color: var(--claude);
+}
+.agent-tag.is-gemini {
+  background: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+}
+.agent-badge {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: help;
+}
+.agent-badge.is-gemini {
+  background: rgba(99, 102, 241, 0.16);
+  color: #a5b4fc;
+}
+/* the + menu: which agent the new session gets */
+.menu-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 9px;
+}
+.menu-agent-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--dim-3);
+}
+.menu-agent .seg button {
+  padding: 3px 9px 3px 4px;
+}
+
+/* ---------------------------------------------------------------- settings */
+
+.settings {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings .card {
+  flex: none;
+}
+.settings-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.settings-head b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-head .muted {
+  font-size: 11px;
+}
+.accounts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.account {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 8px 12px;
+  border-radius: 14px;
+  background: var(--card-flat);
+  border: 1px solid var(--line);
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.account.is-default.is-claude {
+  border-color: rgba(217, 119, 87, 0.45);
+  box-shadow: inset 0 0 24px rgba(217, 119, 87, 0.06);
+}
+.account.is-default.is-gemini {
+  border-color: rgba(129, 140, 248, 0.5);
+  box-shadow: inset 0 0 24px rgba(99, 102, 241, 0.08);
+}
+.account-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.agent-logo {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  font: 700 13px var(--font);
+}
+.agent-logo.is-claude {
+  background: rgba(217, 119, 87, 0.16);
+  color: var(--claude);
+}
+.agent-logo.is-gemini {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+.account-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.account-name b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.account-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.account-state.tone-ok {
+  color: var(--green-2);
+}
+.account-state.tone-warn {
+  color: var(--amber-text);
+}
+.account-state.tone-error {
+  color: var(--red-text);
+}
+.account-state.tone-busy {
+  color: var(--sky);
+}
+.state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.account-check {
+  flex: none;
+}
+.account-line {
+  margin: 0;
+  min-height: 30px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  user-select: text;
+}
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+.account-usage {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--dim-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn.danger {
+  background: var(--red);
+  color: #fff;
+}
+.btn.danger:hover:not(:disabled) {
+  background: #ff6672;
+}
+.account-default {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 -4px;
+  padding: 5px 6px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  color: var(--dim);
+  border-top: 1px solid var(--hairline);
+  transition: background 120ms, color 120ms;
+}
+.account-default:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+.account-default .radio {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--dim-3);
+}
+.account-default.on {
+  color: var(--ink);
+}
+.account-default.on .radio {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #0b0c0e;
+}
+.account-default .radio svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 3;
+}
+
+.settings-general {
+  padding: 4px 6px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 8px;
+  border-radius: 12px;
+  text-align: left;
+  transition: background 120ms;
+}
+.setting-row:hover:not(:disabled) {
+  background: var(--fill);
+}
+.setting-row + .setting-row {
+  border-top: 1px solid var(--hairline);
+}
+.setting-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.setting-text b {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.setting-text .muted {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.switch {
+  flex: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  transition: background 150ms;
+}
+.switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition:
+    transform 180ms var(--spring),
+    background 150ms;
+}
+.switch.on {
+  background: var(--green);
+}
+.switch.on i {
+  transform: translateX(14px);
+  background: #fff;
+}

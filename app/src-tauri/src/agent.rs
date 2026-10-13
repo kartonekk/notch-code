@@ -14,6 +14,10 @@
 //! Nothing ever waits for a permission prompt (`--permission-prompts none`):
 //! what the chosen mode doesn't allow is denied and shown to the user, who can
 //! allow it and continue.
+//!
+//! A session can use Gemini CLI instead (see gemini.rs). It runs one process
+//! per message (`--resume` continues the conversation) and its stream-json
+//! events become the same steps; Claude and Gemini sessions work side by side.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -30,8 +34,9 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::config::Config;
-use crate::{claude, commands, paths, review, terminal};
+use crate::{claude, commands, gemini, paths, review, terminal};
 
+const PROVIDERS: [&str; 2] = ["claude", "gemini"];
 const MAX_RECENT: usize = 8;
 const MAX_SESSIONS: usize = 9;
 const MAX_OUTPUT: usize = 1500;
@@ -47,6 +52,8 @@ pub struct SessionStatus {
     pub id: u64,
     /// Folder Claude works in.
     pub project: String,
+    /// The agent: "claude" | "gemini".
+    pub provider: String,
     pub running: bool,
     /// A conversation is going on (the next message continues it).
     pub has_session: bool,
@@ -73,6 +80,8 @@ pub struct AgentStatus {
     pub limit: Option<Limit>,
     /// How much of the plan is used, from Claude Code's `/usage`.
     pub usage: Option<Usage>,
+    /// The agent new sessions use.
+    pub default_provider: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -179,7 +188,7 @@ pub enum AgentEvent {
 
 struct Session {
     status: SessionStatus,
-    /// Claude Code's session id, for --resume.
+    /// The agent's session id (Claude Code's or Gemini CLI's), for --resume.
     claude: Option<String>,
     /// Claude Code for this session, kept between messages.
     proc: Option<Proc>,
@@ -198,11 +207,12 @@ struct Session {
     slash: Vec<String>,
 }
 
-/// A running Claude Code process.
+/// A running Claude Code (or Gemini CLI) process.
 struct Proc {
     serial: u64,
     pid: u32,
-    stdin: ChildStdin,
+    /// None for Gemini: it takes its one message on the command line.
+    stdin: Option<ChildStdin>,
     /// What it was started with; a message that needs others restarts it.
     allow: Vec<String>,
     model: Option<String>,
@@ -214,6 +224,7 @@ struct Inner {
     recent: Vec<String>,
     limit: Option<Limit>,
     usage: Option<Usage>,
+    default_provider: String,
     next_id: u64,
 }
 
@@ -241,7 +252,13 @@ fn snapshot(inner: &Inner) -> AgentStatus {
         recent: inner.recent.clone(),
         limit: inner.limit.clone(),
         usage: inner.usage.clone(),
+        default_provider: provider_or_default(&inner.default_provider).to_string(),
     }
+}
+
+/// One of PROVIDERS; anything else is Claude.
+fn provider_or_default(p: &str) -> &str {
+    if PROVIDERS.contains(&p) { p } else { "claude" }
 }
 
 /// Changes the state and tells the UI.
@@ -282,11 +299,13 @@ fn emit(app: &AppHandle, sid: u64, event: AgentEvent) {
     let _ = app.emit("agent", Tagged { sid, event });
 }
 
-fn add_session(inner: &mut Inner, project: String) -> u64 {
+fn add_session(inner: &mut Inner, project: String, provider: &str) -> u64 {
     inner.next_id += 1;
     let id = inner.next_id;
+    let provider = provider_or_default(provider).to_string();
+    let caveman = if provider == "claude" { claude::caveman_expected() } else { None };
     inner.sessions.push(Session {
-        status: SessionStatus { id, project, caveman: claude::caveman_expected(), ..Default::default() },
+        status: SessionStatus { id, project, provider, caveman, ..Default::default() },
         claude: None,
         proc: None,
         stopping: false,
@@ -309,7 +328,9 @@ fn persist(inner: &mut Inner, used: Option<&str>) {
         cfg.recent_projects.truncate(MAX_RECENT);
     }
     cfg.sessions = inner.sessions.iter().map(|s| s.status.project.clone()).collect();
+    cfg.session_providers = inner.sessions.iter().map(|s| s.status.provider.clone()).collect();
     cfg.project = cfg.sessions.first().cloned();
+    cfg.default_provider = provider_or_default(&inner.default_provider).to_string();
     cfg.save();
     inner.recent = cfg.recent_projects;
 }
@@ -331,8 +352,11 @@ pub fn init(app: &AppHandle, cfg: &Config) {
     }
     update(app, |i| {
         i.recent = cfg.recent_projects.clone();
-        for p in projects.into_iter().filter(|p| Path::new(p).is_dir()).take(MAX_SESSIONS) {
-            add_session(i, p);
+        i.default_provider = provider_or_default(&cfg.default_provider).to_string();
+        let opened = projects.into_iter().enumerate().filter(|(_, p)| Path::new(p).is_dir()).take(MAX_SESSIONS);
+        for (n, p) in opened {
+            let provider = cfg.session_providers.get(n).map(String::as_str).unwrap_or("claude");
+            add_session(i, p, provider);
         }
     });
     sync_review(app);
@@ -459,30 +483,37 @@ fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String
 fn deliver(app: &AppHandle, sid: u64, prompt: &str, mode: &str, allow: &[String], model: Option<&str>) -> Result<(), String> {
     let pending = u32::from(!is_command(prompt));
     // None = sent; Some = start a new one, after ending the old one (its pid)
-    let stale = with_session(app, sid, |s| -> Result<Option<Option<u32>>, String> {
+    let stale = with_session(app, sid, |s| -> Result<(bool, Option<Option<u32>>), String> {
         if s.stopping {
             return Err("Stopped".into());
         }
+        let gemini = s.status.provider == "gemini";
         let fits = |p: &&mut Proc| p.model.as_deref() == model && allow.iter().all(|a| p.allow.contains(a));
         if let Some(p) = s.proc.as_mut().filter(fits) {
             // the mode goes first, so the message already runs in it
             let mut msg = if s.mode != mode { mode_request(mode) } else { String::new() };
             msg.push_str(&user_message(prompt));
-            if p.stdin.write_all(msg.as_bytes()).and_then(|_| p.stdin.flush()).is_ok() {
-                s.run_proc = p.serial;
-                s.pending = pending;
-                s.mode = mode.to_string();
-                return Ok(None);
+            if let Some(stdin) = p.stdin.as_mut() {
+                if stdin.write_all(msg.as_bytes()).and_then(|_| stdin.flush()).is_ok() {
+                    s.run_proc = p.serial;
+                    s.pending = pending;
+                    s.mode = mode.to_string();
+                    return Ok((gemini, None));
+                }
             }
         }
-        Ok(Some(s.proc.take().map(|p| p.pid)))
+        Ok((gemini, Some(s.proc.take().map(|p| p.pid))))
     })
     .ok_or("That session was closed.")??;
-    let Some(old) = stale else { return Ok(()) };
+    let (gemini, Some(old)) = stale else { return Ok(()) };
     if let Some(pid) = old {
         kill_tree(pid);
     }
-    start(app, sid, prompt, mode, allow, model, pending)
+    if gemini {
+        start_gemini(app, sid, prompt, mode, model)
+    } else {
+        start(app, sid, prompt, mode, allow, model, pending)
+    }
 }
 
 /// Starts Claude Code for a session, with its first message.
@@ -570,7 +601,7 @@ fn start(app: &AppHandle, sid: u64, prompt: &str, mode: &str, allow: &[String], 
         });
     }
 
-    let proc = Proc { serial, pid, stdin, allow: allow.to_vec(), model: model.map(str::to_string) };
+    let proc = Proc { serial, pid, stdin: Some(stdin), allow: allow.to_vec(), model: model.map(str::to_string) };
     let kept = with_session(app, sid, move |s| {
         // stopped while it was starting
         if s.stopping {
@@ -595,7 +626,7 @@ fn start(app: &AppHandle, sid: u64, prompt: &str, mode: &str, allow: &[String], 
 
 /// Follows a Claude process until it exits: its events become steps of the
 /// running message, and the answer to that message's last part ends it.
-fn read(app: AppHandle, sid: u64, serial: u64, mut child: Child, stdout: ChildStdout, stderr_tail: Arc<Mutex<String>>, project: String) {
+fn read(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout, stderr_tail: Arc<Mutex<String>>, project: String) {
     let app = &app;
     let mut out = Outcome::default();
     // a caveman hook ran (and reported its level); they run when Claude starts
@@ -772,10 +803,16 @@ fn read(app: AppHandle, sid: u64, serial: u64, mut child: Child, stdout: ChildSt
             _ => {}
         }
     }
+    exited(app, sid, serial, child, out, &stderr_tail, caveman, "Claude");
+}
+
+/// The agent's process is gone; if that was in the middle of a message, that ends it.
+#[allow(clippy::too_many_arguments)]
+fn exited(app: &AppHandle, sid: u64, serial: u64, mut child: Child, out: Outcome, stderr_tail: &Mutex<String>, caveman: bool, who: &str) {
     let status = child.wait().map(|s| s.to_string()).unwrap_or_else(|e| e.to_string());
     let tail = stderr_tail.lock().unwrap().clone();
     let last = tail.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
-    paths::log(format!("agent session {sid}: Claude exited ({status}) {last}"));
+    paths::log(format!("agent session {sid}: {who} exited ({status}) {last}"));
     // gone in the middle of a message: that ends it
     let ended = with_session(app, sid, |s| {
         if s.proc.as_ref().is_some_and(|p| p.serial == serial) {
@@ -790,6 +827,234 @@ fn read(app: AppHandle, sid: u64, serial: u64, mut child: Child, stdout: ChildSt
     let Some((run, stopping)) = ended.flatten() else { return };
     let result = if out.result.is_none() && !stopping && !last.is_empty() { Err(clip(&last, 300)) } else { Ok(out) };
     finish(app, sid, run, result, caveman);
+}
+
+// ---------------------------------------------------------------- gemini
+
+/// Gemini CLI's approval mode for one of MODES. Nobody can answer a prompt in
+/// headless mode, so what a mode doesn't allow simply isn't run.
+fn gemini_mode(mode: &str) -> &'static str {
+    match mode {
+        "reckless" => "yolo",
+        "plan" => "plan",
+        _ => "auto_edit",
+    }
+}
+
+/// (icon, label, detail) for a Gemini CLI tool call, via its Claude Code twin.
+fn describe_gemini(name: &str, p: &Value) -> (&'static str, String, Option<String>) {
+    let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let path = ["absolute_path", "file_path", "path", "dir_path"].iter().map(|k| s(k)).find(|v| !v.is_empty()).unwrap_or_default();
+    let (twin, input) = match name {
+        "read_file" => ("Read", serde_json::json!({ "file_path": path })),
+        "write_file" => ("Write", serde_json::json!({ "file_path": path })),
+        "replace" | "edit" | "smart_edit" => ("Edit", serde_json::json!({ "file_path": path })),
+        "run_shell_command" => ("Bash", serde_json::json!({ "command": s("command"), "description": s("description") })),
+        "glob" => ("Glob", serde_json::json!({ "pattern": s("pattern"), "path": path })),
+        "search_file_content" | "grep" | "grep_search" => ("Grep", serde_json::json!({ "pattern": s("pattern"), "path": path })),
+        "google_web_search" => ("WebSearch", serde_json::json!({ "query": s("query") })),
+        "web_fetch" => return ("web", "Reading a web page".into(), Some(clip(&s("prompt"), 400)).filter(|d| !d.is_empty())),
+        "list_directory" => return ("search", format!("Listing {}", file_name(&path)), Some(path).filter(|d| !d.is_empty())),
+        "read_many_files" => return ("read", "Reading several files".into(), None),
+        "write_todos" => ("TodoWrite", Value::Null),
+        "save_memory" => return ("plan", "Saving a note for later".into(), Some(s("fact")).filter(|d| !d.is_empty())),
+        other => return ("other", other.replace('_', " "), None),
+    };
+    describe(twin, &input)
+}
+
+/// Keeps the end of a long-lived process's stderr.
+fn tail_of(mut stderr: impl Read + Send + 'static) -> Arc<Mutex<String>> {
+    let tail = Arc::new(Mutex::new(String::new()));
+    let t = tail.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = stderr.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let mut t = t.lock().unwrap();
+            t.push_str(&String::from_utf8_lossy(&buf[..n]));
+            if t.len() > 8192 {
+                let cut = (t.len() - 4096..t.len()).find(|&i| t.is_char_boundary(i)).unwrap_or(0);
+                t.drain(..cut);
+            }
+        }
+    });
+    tail
+}
+
+/// Starts Gemini CLI for one message (it continues the session's conversation).
+fn start_gemini(app: &AppHandle, sid: u64, prompt: &str, mode: &str, model: Option<&str>) -> Result<(), String> {
+    if !gemini::signed_in() {
+        return Err("Gemini isn't signed in — sign in from Settings (the gear icon, Ctrl+,).".into());
+    }
+    let mut cmd = gemini::command()?;
+    let (project, session) = with_session(app, sid, |s| (s.status.project.clone(), s.claude.clone())).ok_or("That session was closed.")?;
+    cmd.args(["--output-format", "stream-json", "--approval-mode", gemini_mode(mode)]);
+    if let Some(id) = &session {
+        cmd.args(["--resume", id]);
+    }
+    // Claude's model names mean nothing to Gemini
+    if let Some(m) = model.filter(|m| m.starts_with("gemini")) {
+        cmd.args(["--model", m]);
+    }
+    cmd.arg("--prompt").arg(prompt);
+    cmd.current_dir(&project).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("Couldn't start Gemini: {e}"))?;
+    let pid = child.id();
+    let serial = app.state::<Agent>().procs.fetch_add(1, Ordering::SeqCst) + 1;
+    paths::log(format!("agent session {sid}: Gemini started in {project} ({mode})"));
+    let Some(stdout) = child.stdout.take() else {
+        kill_tree(pid);
+        return Err("no output from Gemini".into());
+    };
+    let stderr_tail = child.stderr.take().map(tail_of).unwrap_or_default();
+    let proc = Proc { serial, pid, stdin: None, allow: Vec::new(), model: model.map(str::to_string) };
+    let kept = with_session(app, sid, move |s| {
+        if s.stopping {
+            return false;
+        }
+        s.proc = Some(proc);
+        s.run_proc = serial;
+        s.pending = 0;
+        s.mode = mode.to_string();
+        true
+    })
+    .unwrap_or(false);
+    if !kept {
+        kill_tree(pid);
+        let _ = child.wait();
+        return Err("Stopped".into());
+    }
+    let app = app.clone();
+    std::thread::spawn(move || read_gemini(app, sid, serial, child, stdout, stderr_tail, project));
+    Ok(())
+}
+
+/// Gemini's errors that mean "sign in again".
+fn is_auth_error(text: &str) -> bool {
+    // not "credentials" alone: Gemini says "Loaded cached credentials." on every start
+    let t = text.to_ascii_lowercase();
+    ["unauthenticated", "authentication", "invalid_grant", "status 401", "code: 401", "login required", "please log in", "please login", "reauthenticate"]
+        .iter()
+        .any(|k| t.contains(k))
+}
+
+/// Follows a Gemini CLI process: its events become the message's steps and text.
+fn read_gemini(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout, stderr_tail: Arc<Mutex<String>>, project: String) {
+    let app = &app;
+    let mut out = Outcome::default();
+    let mut tools: HashMap<String, String> = HashMap::new();
+    let mut step_started: HashMap<String, Instant> = HashMap::new();
+    let mut edits: HashSet<String> = HashSet::new();
+    // the answer arrives in pieces; it is shown in one go before the next step
+    let mut text = String::new();
+    let mut last_error: Option<String> = None;
+    let flush = |text: &mut String, run: u64| {
+        let t = text.trim();
+        if !t.is_empty() {
+            emit(app, sid, AgentEvent::Text { run, text: t.to_string() });
+        }
+        text.clear();
+    };
+    for line in BufReader::new(stdout).lines() {
+        let Ok(line) = line else { break };
+        let Ok(ev) = serde_json::from_str::<Value>(&line) else { continue };
+        let run = with_session(app, sid, |s| {
+            if !s.status.running || s.run_proc != serial {
+                return None;
+            }
+            if let Some(id) = ev.get("session_id").and_then(Value::as_str) {
+                s.claude = Some(id.to_string());
+            }
+            Some(s.run)
+        });
+        let Some(run) = run.flatten() else { continue };
+        match ev.get("type").and_then(Value::as_str) {
+            Some("init") => {
+                if let Some(m) = ev.get("model").and_then(Value::as_str) {
+                    let m = m.to_string();
+                    session_update(app, sid, |s| s.status.model = Some(m));
+                }
+            }
+            Some("message") if ev.get("role").and_then(Value::as_str) == Some("assistant") => {
+                if let Some(c) = ev.get("content").and_then(Value::as_str) {
+                    text.push_str(c);
+                }
+            }
+            Some("tool_use") => {
+                flush(&mut text, run);
+                let id = ev.get("tool_id").and_then(Value::as_str).unwrap_or("").to_string();
+                let name = ev.get("tool_name").and_then(Value::as_str).unwrap_or("tool");
+                let params = ev.get("parameters").cloned().unwrap_or(Value::Null);
+                let (icon, label, detail) = describe_gemini(name, &params);
+                tools.insert(id.clone(), label.clone());
+                step_started.insert(id.clone(), Instant::now());
+                if icon == "edit" || icon == "create" {
+                    edits.insert(id.clone());
+                }
+                let at = now_ms();
+                session_update(app, sid, |s| {
+                    s.status.current = Some(label.clone());
+                    s.status.current_since = Some(at);
+                });
+                emit(app, sid, AgentEvent::Step { run, id, icon, label, detail, at });
+            }
+            Some("tool_result") => {
+                let id = ev.get("tool_id").and_then(Value::as_str).unwrap_or("").to_string();
+                let ok = ev.get("status").and_then(Value::as_str) != Some("error");
+                let output = ev
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .or_else(|| ev.pointer("/error/message").and_then(Value::as_str))
+                    .map(|o| clip(o, MAX_OUTPUT))
+                    .filter(|o| !o.is_empty());
+                session_update(app, sid, |s| {
+                    s.status.current = Some("Thinking…".into());
+                    s.status.current_since = None;
+                });
+                let edited = edits.remove(&id);
+                let label = tools.get(&id).cloned().unwrap_or_default();
+                let duration_ms = step_started.remove(&id).map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
+                emit(app, sid, AgentEvent::StepDone { run, id, ok, output, label, duration_ms });
+                if edited && with_session(app, sid, |s| s.mode != "reckless").unwrap_or(true) {
+                    review::refresh(app, &project);
+                }
+            }
+            Some("error") => {
+                let msg = ev.get("message").and_then(Value::as_str).unwrap_or("").to_string();
+                paths::log(format!("agent run {run}: gemini: {msg}"));
+                if ev.get("severity").and_then(Value::as_str) != Some("warning") {
+                    out.auth_failed |= is_auth_error(&msg);
+                    last_error = Some(msg);
+                }
+            }
+            Some("result") => {
+                flush(&mut text, run);
+                let ok = ev.get("status").and_then(Value::as_str) == Some("success");
+                let err = ev.pointer("/error/message").and_then(Value::as_str).map(str::to_string).or(last_error.take()).unwrap_or_default();
+                if !ok {
+                    out.auth_failed |= is_auth_error(&err);
+                }
+                out.result = Some((!ok, if ok { String::new() } else { err }));
+                with_session(app, sid, |s| s.run_proc = 0);
+                finish(app, sid, run, Ok(std::mem::take(&mut out)), false);
+            }
+            _ => {}
+        }
+    }
+    // gone without a result (an old Gemini CLI, a crash): its last words explain it
+    if out.result.is_none() {
+        if let Some(e) = last_error {
+            stderr_tail.lock().unwrap().push_str(&format!("\n{e}"));
+        }
+        if is_auth_error(&stderr_tail.lock().unwrap()) {
+            out.auth_failed = true;
+            out.result = Some((true, String::new()));
+        }
+    }
+    exited(app, sid, serial, child, out, &stderr_tail, false, "Gemini");
 }
 
 /// The running message is over: review what changed, go idle, tell the UI.
@@ -807,21 +1072,31 @@ fn finish(app: &AppHandle, sid: u64, run: u64, result: Result<Outcome, String>, 
     }
 
     let (stopped, started) = with_session(app, sid, |s| (std::mem::take(&mut s.stopping), s.run_started.take())).unwrap_or((true, None));
+    let gemini = with_session(app, sid, |s| s.status.provider == "gemini").unwrap_or(false);
+    let who = if gemini { "Gemini" } else { "Claude" };
     // Claude answered without caveman's hooks: the plugin is off
-    let no_caveman = !caveman && matches!(&result, Ok(o) if o.result.is_some());
+    let no_caveman = !gemini && !caveman && matches!(&result, Ok(o) if o.result.is_some());
     let (ok, message, denied) = match result {
         _ if stopped => (false, Some("Stopped".to_string()), Vec::new()),
         Err(e) => (false, Some(e), Vec::new()),
         Ok(out) if out.auth_failed => {
-            claude::report_auth_failure(app);
-            (false, Some("Claude's sign-in has expired. Sign in again, then send your message again.".into()), Vec::new())
+            if gemini {
+                gemini::report_auth_failure(app);
+            } else {
+                claude::report_auth_failure(app);
+            }
+            (false, Some(format!("{who}'s sign-in has expired. Sign in again in Settings, then send your message again.")), Vec::new())
         }
         Ok(out) => {
-            claude::report_auth_ok(app);
+            if gemini {
+                gemini::report_auth_ok(app);
+            } else {
+                claude::report_auth_ok(app);
+            }
             match out.result {
                 Some((false, _)) => (true, None, out.denied),
                 Some((true, text)) => (false, Some(clip(&text, 300)), out.denied),
-                None => (false, Some("Claude stopped without an answer.".into()), out.denied),
+                None => (false, Some(format!("{who} stopped without an answer.")), out.denied),
             }
         }
     };
@@ -844,7 +1119,9 @@ fn finish(app: &AppHandle, sid: u64, run: u64, result: Result<Outcome, String>, 
         denied,
     });
     // the reply used some of the plan
-    refresh_usage(app);
+    if !gemini {
+        refresh_usage(app);
+    }
 }
 
 // ---------------------------------------------------------------- commands
@@ -862,19 +1139,62 @@ pub fn agent_status(app: AppHandle) -> AgentStatus {
     snapshot(&app.state::<Agent>().inner.lock().unwrap())
 }
 
-/// Opens a new session in `path`; returns its id.
+/// Opens a new session in `path` with `provider` (default: the chosen default agent); returns its id.
 #[tauri::command]
-pub fn agent_open(app: AppHandle, path: String) -> Result<u64, String> {
+pub fn agent_open(app: AppHandle, path: String, provider: Option<String>) -> Result<u64, String> {
     check_dir(&path)?;
     let mut result = Err("You can have up to 9 sessions open.".to_string());
     update(&app, |i| {
         if i.sessions.len() < MAX_SESSIONS {
-            result = Ok(add_session(i, path.clone()));
+            let provider = provider.unwrap_or_else(|| i.default_provider.clone());
+            result = Ok(add_session(i, path.clone(), &provider));
             persist(i, Some(&path));
         }
     });
     sync_review(&app);
     result
+}
+
+/// Switches an idle session to the other agent (a new conversation starts).
+#[tauri::command]
+pub fn agent_set_provider(app: AppHandle, sid: u64, provider: String) -> Result<(), String> {
+    if !PROVIDERS.contains(&provider.as_str()) {
+        return Err("Unknown agent.".into());
+    }
+    let mut result = Ok(());
+    update(&app, |i| {
+        match i.sessions.iter_mut().find(|s| s.status.id == sid) {
+            Some(s) if s.status.running => result = Err("Wait until it has finished.".to_string()),
+            Some(s) => {
+                s.status.caveman = if provider == "claude" { claude::caveman_expected() } else { None };
+                s.status.provider = provider.clone();
+                s.status.model = None;
+                s.claude = None;
+                s.slash.clear();
+            }
+            None => result = Err("That session was closed.".to_string()),
+        }
+        if result.is_ok() {
+            persist(i, None);
+        }
+    });
+    if result.is_ok() {
+        end_proc(&app, sid, false);
+    }
+    result
+}
+
+/// The agent new sessions use.
+#[tauri::command]
+pub fn agent_set_default_provider(app: AppHandle, provider: String) -> Result<(), String> {
+    if !PROVIDERS.contains(&provider.as_str()) {
+        return Err("Unknown agent.".into());
+    }
+    update(&app, |i| {
+        i.default_provider = provider;
+        persist(i, None);
+    });
+    Ok(())
 }
 
 /// Closes a session (stopping Claude first if it's working).
@@ -965,7 +1285,7 @@ pub fn agent_send(app: AppHandle, sid: u64, prompt: String, mode: String, allow:
     Ok(())
 }
 
-fn kill_tree(pid: u32) {
+pub(crate) fn kill_tree(pid: u32) {
     let mut cmd = Command::new("taskkill");
     cmd.args(["/T", "/F", "/PID", &pid.to_string()]).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
@@ -1018,8 +1338,8 @@ pub fn agent_set_mode(app: AppHandle, mode: String) {
     let mut inner = agent.inner.lock().unwrap();
     for s in inner.sessions.iter_mut().filter(|s| s.status.running && !s.stopping && s.mode != mode) {
         let run_proc = s.run_proc;
-        let Some(p) = s.proc.as_mut().filter(|p| p.serial == run_proc) else { continue };
-        match p.stdin.write_all(mode_request(&mode).as_bytes()).and_then(|_| p.stdin.flush()) {
+        let Some(stdin) = s.proc.as_mut().filter(|p| p.serial == run_proc).and_then(|p| p.stdin.as_mut()) else { continue };
+        match stdin.write_all(mode_request(&mode).as_bytes()).and_then(|_| stdin.flush()) {
             Ok(()) => paths::log(format!("agent session {}: mode -> {mode}", s.status.id)),
             Err(e) => paths::log(format!("agent session {}: couldn't switch mode: {e}", s.status.id)),
         }
@@ -1040,10 +1360,15 @@ pub fn agent_inject(app: AppHandle, sid: u64, prompt: String) -> Result<(), Stri
         // run_proc is 0 once Claude has answered the last message
         let taking = s.status.running && !s.stopping;
         let run_proc = s.run_proc;
-        let p = s.proc.as_mut().filter(|p| taking && p.serial == run_proc).ok_or("Claude isn't taking messages right now.")?;
-        p.stdin
+        let stdin = s
+            .proc
+            .as_mut()
+            .filter(|p| taking && p.serial == run_proc)
+            .and_then(|p| p.stdin.as_mut())
+            .ok_or("Claude isn't taking messages right now.")?;
+        stdin
             .write_all(user_message(&prompt).as_bytes())
-            .and_then(|_| p.stdin.flush())
+            .and_then(|_| stdin.flush())
             .map_err(|e| format!("Couldn't reach Claude: {e}"))?;
         s.pending += u32::from(!is_command(&prompt));
         // still under the lock, so it always comes before the run's "done"

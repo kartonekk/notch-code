@@ -59,8 +59,40 @@ export interface ClaudeStatus {
   message: string | null;
   /** subscription reported by the CLI ("pro", "max", …) */
   plan: string | null;
-  /** a background sign-in didn't finish: offer the visible sign-in window */
-  suggest_window: boolean;
+}
+
+/** Gemini CLI's sign-in (a Google account with the Gemini subscription) */
+export interface GeminiStatus {
+  state: ClaudeAuthState;
+  message: string | null;
+  /** the Google account it is signed in with */
+  account: string | null;
+}
+
+/** the agent a session uses */
+export type Provider = "claude" | "gemini";
+
+export const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", gemini: "Gemini" };
+
+/** what's playing on this computer (Windows' media controls) */
+export interface Media {
+  title: string;
+  artist: string | null;
+  /** the app playing it ("Spotify", "Chrome", …) */
+  app: string;
+  playing: boolean;
+  /** where it was at `updated_at` (unix ms) */
+  position_ms: number | null;
+  duration_ms: number | null;
+  updated_at: number | null;
+  can_prev: boolean;
+  can_next: boolean;
+  /** album art as a data URL */
+  thumb: string | null;
+}
+
+export interface Settings {
+  autostart: boolean;
 }
 
 export interface UpdateStatus {
@@ -82,6 +114,8 @@ export interface SessionStatus {
   id: number;
   /** folder Claude works in */
   project: string;
+  /** the agent this session uses */
+  provider: Provider;
   running: boolean;
   /** a conversation is going on (the next message continues it) */
   has_session: boolean;
@@ -105,6 +139,8 @@ export interface AgentStatus {
   limit: Limit | null;
   /** how much of the plan is used, from Claude Code's `/usage` */
   usage: Usage | null;
+  /** the agent new sessions use */
+  default_provider: Provider;
 }
 
 export interface Usage {
@@ -205,15 +241,32 @@ export const api = {
   claudeStatus: () => invoke<ClaudeStatus>("claude_status"),
   /** re-checks Claude's sign-in (throttled in the backend) */
   claudeRefresh: () => invoke<void>("claude_refresh"),
-  /** `window` = show the CLI's own sign-in console instead of a background sign-in */
-  claudeLogin: (window: boolean) => invoke<void>("claude_login", { window }),
+  /** opens Claude's sign-in console (it sends you to the browser) */
+  claudeLogin: () => invoke<void>("claude_login"),
+  claudeLogout: () => invoke<void>("claude_logout"),
+  /** re-checks Claude's sign-in now */
+  claudeRecheck: () => invoke<void>("claude_recheck"),
   claudeInstall: () => invoke<void>("claude_install"),
+  geminiStatus: () => invoke<GeminiStatus>("gemini_status"),
+  geminiRefresh: () => invoke<void>("gemini_refresh"),
+  /** opens Gemini CLI to sign in with Google (installs it first if needed) */
+  geminiLogin: () => invoke<void>("gemini_login"),
+  geminiLogout: () => invoke<void>("gemini_logout"),
+  geminiInstall: () => invoke<void>("gemini_install"),
+  mediaStatus: () => invoke<Media | null>("media_status"),
+  mediaControl: (action: "toggle" | "next" | "prev") => invoke<void>("media_control", { action }),
+  settingsGet: () => invoke<Settings>("settings_get"),
+  setAutostart: (on: boolean) => invoke<void>("set_autostart", { on }),
   updateStatus: () => invoke<UpdateStatus>("update_status"),
   /** downloads the newer build, swaps the exe and restarts — only on the user's click */
   updateInstall: () => invoke<void>("update_install"),
   agentStatus: () => invoke<AgentStatus>("agent_status"),
-  /** new session in `path`; returns its id */
-  agentOpen: (path: string) => invoke<number>("agent_open", { path }),
+  /** new session in `path` (with `provider`, else the default agent); returns its id */
+  agentOpen: (path: string, provider: Provider | null = null) => invoke<number>("agent_open", { path, provider }),
+  /** switches an idle session to the other agent (new conversation) */
+  agentSetProvider: (sid: number, provider: Provider) => invoke<void>("agent_set_provider", { sid, provider }),
+  /** the agent new sessions use */
+  agentSetDefaultProvider: (provider: Provider) => invoke<void>("agent_set_default_provider", { provider }),
   agentClose: (sid: number) => invoke<void>("agent_close", { sid }),
   /** `allow` = extra --allowedTools rules (after the user allowed a denied step) */
   /** `model` = alias ("opus", "sonnet", …) or full name; null = Claude Code's default */

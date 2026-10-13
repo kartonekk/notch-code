@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { api, AppStatus, ClaudeStatus, Limit, on, SessionStatus, UpdateStatus, Usage } from "./api";
+import { api, AppStatus, ClaudeStatus, Limit, on, Provider, PROVIDER_NAME, SessionStatus, UpdateStatus, Usage } from "./api";
 import { Agents, AgentNotice, CodeTab, stepTime, useAgents } from "./CodeTab";
 import { Home, homePills } from "./Home";
+import { useMedia } from "./Media";
+import { Settings, useGemini } from "./Settings";
 import { useVoice, voiceLine } from "./Voice";
 import { PILL_STEP, PILL_WIDTH, ReviewPills, useReview } from "./Review";
 import { SPEAKER_LABEL, TranscribeTab, useTranscription } from "./TranscribeTab";
 import {
+  AgentTag,
   AlertIcon,
   basename,
   capitalize,
@@ -15,6 +18,7 @@ import {
   ClaudeBanner,
   CrossIcon,
   formatDuration,
+  GearIcon,
   HomeIcon,
   hue,
   IconButton,
@@ -51,11 +55,15 @@ const PILL_ROW = 32;
 /** tall enough for the + menu under the tabs */
 const TAB_MENU_H = 340;
 const ANIM_MS = 300;
+/** the settings view, header included */
+const SETTINGS_H = 392;
+/** the now-playing card under Home's status card (+ the gap above it) */
+const MEDIA_H = 74;
 /** "Later" on the Claude sign-in reminder hides it for this long */
 const CLAUDE_SNOOZE_MS = 60 * 60 * 1000;
 
-/** what the panel shows: the overview, a Claude session (by id) or the transcriber */
-export type View = "home" | number | "transcribe";
+/** what the panel shows: the overview, an agent session (by id), the transcriber or settings */
+export type View = "home" | number | "transcribe" | "settings";
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
@@ -76,6 +84,8 @@ export default function App() {
   const agents = useAgents(expanded, typeof view === "number" ? view : null);
   const review = useReview();
   const voice = useVoice();
+  const gemini = useGemini();
+  const media = useMedia();
   const rec = useTranscription(status, expanded && view === "transcribe");
   const { recording, paused, phase } = rec;
   const sessions = agents.sessions;
@@ -91,7 +101,7 @@ export default function App() {
   // first load, and when the shown session gets closed: fall back to something that exists
   useEffect(() => {
     if (!agents.status) return;
-    if (view === "home" || view === "transcribe" || (view != null && sessions.some((s) => s.id === view))) return;
+    if (view === "home" || view === "transcribe" || view === "settings" || (view != null && sessions.some((s) => s.id === view))) return;
     if (view == null) {
       const saved = store.get("view");
       if (saved === "transcribe" || saved === "home") return setViewState(saved);
@@ -102,10 +112,10 @@ export default function App() {
   }, [agents.status, view, sessions]);
   const current: SessionStatus | null = typeof view === "number" ? agents.session(view) : null;
 
-  const openSession = async (path: string) => {
-    const existing = sessions.find((s) => s.project.toLowerCase() === path.toLowerCase());
+  const openSession = async (path: string, provider?: Provider) => {
+    const existing = sessions.find((s) => s.project.toLowerCase() === path.toLowerCase() && (!provider || s.provider === provider));
     if (existing) return setView(existing.id);
-    const sid = await agents.open(path);
+    const sid = await agents.open(path, provider);
     if (sid != null) {
       setViewState(sid);
       store.set("view", path);
@@ -214,11 +224,13 @@ export default function App() {
         : phase === "ready"
           ? Math.min(400, 170 + Math.max(1, rec.sources.length) * 46)
           : 230
-      : current
-        ? current.running || agents.feed(current.id).length > 0
-          ? 450
-          : 340
-        : CHROME_H + Math.max(132, Math.ceil(homePills(agents).count / 2) * PILL_ROW + 20);
+      : view === "settings"
+        ? SETTINGS_H
+        : current
+          ? current.running || agents.feed(current.id).length > 0
+            ? 450
+            : 340
+          : CHROME_H + Math.max(132 + (media ? MEDIA_H : 0), Math.ceil(homePills(agents).count / 2) * PILL_ROW + 20);
   const expandedH = Math.min(EXPANDED_MAX_H, Math.max(viewH + banners * BANNER_H, tabMenu ? TAB_MENU_H : 0));
   const expandedHRef = useRef(expandedH);
   expandedHRef.current = expandedH;
@@ -298,6 +310,7 @@ export default function App() {
     if (e.ctrlKey && n >= 1 && n <= 9 && sessions[n - 1]) setView(sessions[n - 1].id);
     else if (e.ctrlKey && k === "h") setView("home");
     else if (e.ctrlKey && k === "m") setView("transcribe");
+    else if (e.ctrlKey && e.key === ",") setView("settings");
     else if (e.ctrlKey && k === "t") pickAndOpen();
     else if (e.ctrlKey && e.code === "Backquote" && current) openTerminal(current.project);
     else if (e.ctrlKey && e.key === "Tab") {
@@ -467,7 +480,7 @@ export default function App() {
                   onHold={setTabMenu}
                 />
                 <div className="header-actions">
-                  {claude?.state === "signed_in" && <LimitChip plan={claude.plan} limit={agents.limit} usage={agents.usage} />}
+                  {claude?.state === "signed_in" && current?.provider !== "gemini" && <LimitChip plan={claude.plan} limit={agents.limit} usage={agents.usage} />}
                   <IconButton
                     title={
                       voice.wake
@@ -478,6 +491,9 @@ export default function App() {
                     onClick={() => voice.setWake(!voice.wake)}
                   >
                     {voice.wake ? <MicIcon /> : <MicOffIcon />}
+                  </IconButton>
+                  <IconButton title="Settings: accounts, default agent (Ctrl+,)" active={view === "settings"} onClick={() => setView(view === "settings" ? "home" : "settings")}>
+                    <GearIcon />
                   </IconButton>
                   <IconButton title={pinned ? "Unpin" : "Keep open"} active={pinned} onClick={() => setPinned(!pinned)}>
                     <PinIcon />
@@ -496,7 +512,9 @@ export default function App() {
               )}
 
               <div className="view" key={String(view)}>
-                {view === "transcribe" ? (
+                {view === "settings" ? (
+                  <Settings claude={claude} gemini={gemini} agents={agents} voice={voice} />
+                ) : view === "transcribe" ? (
                   <section className={`card wash glow-${recording ? (paused ? "paused" : "rec") : phase === "error" ? "error" : "idle"}`}>
                     <TranscribeTab t={rec} status={status} />
                   </section>
@@ -534,6 +552,7 @@ export default function App() {
                     onOpen={openSession}
                     onPick={pickAndOpen}
                     onHold={setHold}
+                    media={media}
                   />
                 )}
               </div>
@@ -614,17 +633,18 @@ function Tabs({
             <button
               className={`tab tab-session ${view === s.id ? "is-active" : ""} ${s.running ? "is-running" : ""}`}
               style={{ "--h": hue(s.project) } as CSSProperties}
-              title={`${basename(s.project)}${s.running ? ` — ${s.current ?? "working"}` : ""}\n${s.project}\nCtrl+${i + 1}`}
+              title={`${basename(s.project)} · ${PROVIDER_NAME[s.provider]}${s.running ? ` — ${s.current ?? "working"}` : ""}\n${s.project}\nCtrl+${i + 1}`}
               onClick={() => onView(s.id)}
             >
               <Mini hue={hue(s.project)} running={s.running} size={10} />
               <span className="tab-name">{basename(s.project)}</span>
+              <AgentTag provider={s.provider} />
               {tone && !s.running && <span className={`tab-badge is-${tone}`} />}
               {queued > 0 && <span className="tab-count">{queued}</span>}
             </button>
             <button
               className="tab-x"
-              title={s.running ? "Stop Claude and close this session" : "Close this session"}
+              title={s.running ? `Stop ${PROVIDER_NAME[s.provider]} and close this session` : "Close this session"}
               onClick={() => agents.close(s.id)}
             >
               <CrossIcon />
@@ -636,17 +656,35 @@ function Tabs({
       <div className="tab-add">
         <button
           className={`tab tab-plus ${adding ? "is-active" : ""}`}
-          title="New Claude session in a folder (Ctrl+T)"
+          title={`New session in a folder (Ctrl+T)`}
           disabled={picking || agents.sessions.length >= 9}
-          onClick={() => (recent.length ? setAdding(!adding) : onPick())}
+          onClick={() => setAdding(!adding)}
         >
           <PlusIcon />
-          {agents.sessions.length === 0 && "Claude"}
+          {agents.sessions.length === 0 && PROVIDER_NAME[agents.defaultProvider]}
         </button>
         {adding && (
           <>
             <div className="menu-scrim" onClick={() => setAdding(false)} />
             <div className="menu menu-down" role="menu">
+              <div className="menu-agent" role="radiogroup" aria-label="Agent for the new session">
+                <span className="menu-agent-label">Agent</span>
+                <div className="seg">
+                  {(["claude", "gemini"] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      role="radio"
+                      aria-checked={agents.defaultProvider === p}
+                      className={agents.defaultProvider === p ? "on" : ""}
+                      onClick={() => agents.setDefaultProvider(p)}
+                    >
+                      <AgentTag provider={p} /> {PROVIDER_NAME[p]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="menu-sep" />
               {recent.map((p) => (
                 <button
                   key={p}
@@ -661,7 +699,7 @@ function Tabs({
                   <span className="menu-sub">{p}</span>
                 </button>
               ))}
-              <div className="menu-sep" />
+              {recent.length > 0 && <div className="menu-sep" />}
               <button
                 className="menu-item"
                 role="menuitem"
@@ -670,7 +708,7 @@ function Tabs({
                   onPick();
                 }}
               >
-                <span className="menu-title">Choose another folder…</span>
+                <span className="menu-title">{recent.length ? "Choose another folder…" : "Choose a folder…"}</span>
               </button>
             </div>
           </>
@@ -697,6 +735,7 @@ function ProjectMenu({
   const [open, setOpen] = useState(false);
   useEffect(() => onHold(open), [open, onHold]);
   const others = agents.recent.filter((p) => p.toLowerCase() !== session.project.toLowerCase());
+  const other: Provider = session.provider === "gemini" ? "claude" : "gemini";
   const queued = agents.queue(session.id).length;
   return (
     <div className="project">
@@ -706,6 +745,7 @@ function ProjectMenu({
         <ChevronIcon open={open} />
       </button>
       <span className="session-label">
+        {PROVIDER_NAME[session.provider]} ·{" "}
         {session.running ? `working${queued ? ` · ${queued} queued` : ""}` : session.has_session ? "conversation" : "new conversation"}
       </span>
       {open && (
@@ -733,6 +773,22 @@ function ProjectMenu({
             >
               <span className="menu-title">Open terminal here (Ctrl+`)</span>
             </button>
+            {!session.running && (
+              <>
+                <div className="menu-sep" />
+                <button
+                  className="menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    agents.setProvider(session.id, other);
+                  }}
+                >
+                  <span className="menu-title">Switch this session to {PROVIDER_NAME[other]}</span>
+                  <span className="menu-sub">Starts a new conversation · the other agent's sessions keep working</span>
+                </button>
+              </>
+            )}
             {!session.running && others.length > 0 && <div className="menu-sep" />}
             {!session.running &&
               others.slice(0, 5).map((p) => (

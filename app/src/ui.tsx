@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { api, ClaudeStatus, StepIcon, UpdateStatus } from "./api";
+import { api, ClaudeStatus, Provider, PROVIDER_NAME, StepIcon, UpdateStatus } from "./api";
 
 // ---- helpers ------------------------------------------------------------------
 
@@ -80,6 +80,15 @@ export function Mini({ hue, running, size = 14 }: { hue: number; running?: boole
   return <span className={`mini ${running ? "is-running" : ""}`} style={{ "--h": hue, "--s": `${size}px` } as CSSProperties} aria-hidden />;
 }
 
+/** which agent a session uses: a small "C" (Claude) or "G" (Gemini) */
+export function AgentTag({ provider }: { provider: Provider }) {
+  return (
+    <span className={`agent-tag is-${provider}`} title={PROVIDER_NAME[provider]} aria-label={PROVIDER_NAME[provider]}>
+      {provider === "gemini" ? "G" : "C"}
+    </span>
+  );
+}
+
 // ---- small components -----------------------------------------------------------
 
 export function IconButton(props: { title: string; onClick: () => void; active?: boolean; disabled?: boolean; children: ReactNode }) {
@@ -138,13 +147,8 @@ export function ClaudeBanner({ claude, onLater }: { claude: ClaudeStatus; onLate
           Later
         </button>
       )}
-      {canSignIn && claude.suggest_window && (
-        <button className="btn secondary sm" onClick={() => api.claudeLogin(true)}>
-          Sign-in window
-        </button>
-      )}
       {canSignIn && (
-        <button className="btn primary sm" onClick={() => api.claudeLogin(false)}>
+        <button className="btn primary sm" title="Opens a sign-in window; finish in your browser" onClick={() => api.claudeLogin()}>
           Sign in
         </button>
       )}
@@ -308,6 +312,29 @@ export const CopyIcon = () => (
 export const RetryIcon = () => (
   <svg {...small} width={11} height={11}>
     <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />
+  </svg>
+);
+export const GearIcon = () => (
+  <svg {...small}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+  </svg>
+);
+export const NextIcon = () => (
+  <svg {...small} fill="currentColor" stroke="none">
+    <path d="M5 5.5v13a1 1 0 0 0 1.5.9l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 5 5.5zM18 5h2v14h-2z" />
+  </svg>
+);
+export const PrevIcon = () => (
+  <svg {...small} fill="currentColor" stroke="none">
+    <path d="M19 5.5v13a1 1 0 0 1-1.5.9l-10-6.5a1 1 0 0 1 0-1.7l10-6.5a1 1 0 0 1 1.5.8zM4 5h2v14H4z" />
+  </svg>
+);
+export const MusicIcon = () => (
+  <svg {...small}>
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
   </svg>
 );
 export const AlertIcon = () => (

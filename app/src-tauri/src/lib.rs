@@ -5,7 +5,9 @@ mod claude;
 mod commands;
 mod config;
 mod dsp;
+mod gemini;
 mod hover;
+mod media;
 mod paths;
 mod review;
 mod setup;
@@ -406,6 +408,31 @@ fn open_folder(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The tray's "Start with Windows" item, kept in step with Settings.
+struct AutostartItem(CheckMenuItem<tauri::Wry>);
+
+#[derive(Serialize)]
+struct Settings {
+    autostart: bool,
+}
+
+#[tauri::command]
+fn settings_get(app: AppHandle) -> Settings {
+    Settings { autostart: app.state::<AppState>().config.lock().unwrap().autostart }
+}
+
+#[tauri::command]
+fn set_autostart(app: AppHandle, on: bool) {
+    let mut cfg = Config::load();
+    cfg.autostart = on;
+    cfg.save();
+    app.state::<AppState>().config.lock().unwrap().autostart = on;
+    if let Some(item) = app.try_state::<AutostartItem>() {
+        let _ = item.0.set_checked(on);
+    }
+    std::thread::spawn(move || autostart::apply(on));
+}
+
 #[tauri::command]
 async fn quit_app(app: AppHandle) {
     agent::stop_all(&app);
@@ -457,6 +484,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .manage(claude::Claude::default())
+        .manage(gemini::Gemini::default())
+        .manage(media::MediaState::default())
         .manage(update::Updater::default())
         .manage(agent::Agent::default())
         .manage(review::Review::default())
@@ -476,6 +505,17 @@ pub fn run() {
             claude::claude_status,
             claude::claude_refresh,
             claude::claude_login,
+            claude::claude_logout,
+            claude::claude_recheck,
+            gemini::gemini_status,
+            gemini::gemini_refresh,
+            gemini::gemini_login,
+            gemini::gemini_logout,
+            gemini::gemini_install,
+            media::media_status,
+            media::media_control,
+            settings_get,
+            set_autostart,
             claude::claude_install,
             update::update_status,
             update::update_check,
@@ -493,6 +533,8 @@ pub fn run() {
             agent::agent_pick_folder,
             agent::agent_open_folder,
             agent::agent_forget,
+            agent::agent_set_provider,
+            agent::agent_set_default_provider,
             terminal::open_terminal,
             agent::agent_save_image,
             agent::agent_pick_images,
@@ -526,6 +568,7 @@ pub fn run() {
             let open_item = MenuItem::with_id(app, "folder", "Transcripts folder", true, None::<&str>)?;
             let autostart_item =
                 CheckMenuItem::with_id(app, "autostart", "Start with Windows", true, cfg.autostart, None::<&str>)?;
+            app.manage(AutostartItem(autostart_item.clone()));
             let update_item = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
@@ -557,6 +600,8 @@ pub fn run() {
 
             start_setup(app.handle().clone());
             claude::spawn_monitor(app.handle().clone());
+            gemini::spawn_monitor(app.handle().clone());
+            media::spawn(app.handle().clone());
             update::spawn_checker(app.handle().clone());
             Ok(())
         })

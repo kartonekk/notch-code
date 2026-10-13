@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, SlashCommand, StepIcon } from "./api";
+import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon } from "./api";
 import { Markdown } from "./Markdown";
 import { parseUsageReport, UsageCard } from "./Usage";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
@@ -360,11 +360,19 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       setFeeds((prev) => ({ ...prev, [sid]: [] }));
       call(api.agentNew(sid));
     },
-    /** opens a session in `path` and returns its id */
-    open: async (path: string) => {
+    /** the agent new sessions use */
+    defaultProvider: (status?.default_provider ?? "claude") as Provider,
+    setDefaultProvider: (p: Provider) => call(api.agentSetDefaultProvider(p)),
+    /** switches an idle session to the other agent (new conversation) */
+    setProvider: (sid: number, p: Provider) => {
+      setFeeds((prev) => ({ ...prev, [sid]: [] }));
+      call(api.agentSetProvider(sid, p));
+    },
+    /** opens a session in `path` (with `provider`, else the default agent) and returns its id */
+    open: async (path: string, provider?: Provider) => {
       setError(null);
       try {
-        return await api.agentOpen(path);
+        return await api.agentOpen(path, provider ?? null);
       } catch (e) {
         setError(String(e));
         return null;
@@ -419,6 +427,8 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   const items = agents.feed(sid);
   const queue = agents.queue(sid);
   const running = session.running;
+  const gemini = session.provider === "gemini";
+  const agentName = PROVIDER_NAME[session.provider];
   const draftKey = `agent.draft.${session.project}`;
   const [draft, setDraft] = useState(() => store.get(draftKey) ?? "");
   const [modelOpen, setModelOpen] = useState(false);
@@ -754,10 +764,12 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
             value={draft}
             placeholder={
               running
-                ? "Add more details — Claude reads it at its next step"
+                ? gemini
+                  ? "Write the next message — it goes out when Gemini finishes"
+                  : "Add more details — Claude reads it at its next step"
                 : lastPrompt
                   ? "Reply, or ask for something else…"
-                  : "Ask Claude to build, fix or explain something…"
+                  : `Ask ${agentName} to build, fix or explain something…`
             }
             onChange={(e) => setDraft(e.target.value)}
             onFocus={() => setFocused(true)}
@@ -861,6 +873,11 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
             </span>
           )}
 
+          {gemini ? (
+            <span className="agent-badge is-gemini" title={`Gemini CLI${session.model ? ` — ${session.model}` : ""}. Switch the agent in the folder menu above.`}>
+              Gemini{session.model ? ` · ${session.model.replace(/^gemini-/, "")}` : ""}
+            </span>
+          ) : (
           <div className="model">
             <button
               type="button"
@@ -896,6 +913,7 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
               </>
             )}
           </div>
+          )}
         </div>
       </form>
     </div>

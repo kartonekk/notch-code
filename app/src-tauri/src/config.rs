@@ -24,8 +24,12 @@ pub struct Config {
     pub project: Option<String>,
     /// Recently used project folders, newest first.
     pub recent_projects: Vec<String>,
-    /// Folders of the open Claude sessions.
+    /// Folders of the open agent sessions.
     pub sessions: Vec<String>,
+    /// The agent of each open session ("claude" | "gemini"), same order as `sessions`.
+    pub session_providers: Vec<String>,
+    /// The agent new sessions use ("claude" | "gemini").
+    pub default_provider: String,
     /// Voice prompts: the microphone stays open for the wake word ("Claude, …"
     /// sends a prompt) and the mic button is shown. Off = microphone closed.
     pub voice_wake: bool,
@@ -45,6 +49,8 @@ impl Default for Config {
             project: None,
             recent_projects: Vec::new(),
             sessions: Vec::new(),
+            session_providers: Vec::new(),
+            default_provider: "claude".into(),
             voice_wake: true,
         }
     }
