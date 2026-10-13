@@ -28,6 +28,12 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_POLL: Duration = Duration::from_secs(3);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 const INSTALL_COMMAND: &str = "irm https://claude.ai/install.ps1 | iex";
+const PLUGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// Caveman plugin: terse answers, far fewer output tokens.
+const CAVEMAN_ID: &str = "caveman@caveman";
+const CAVEMAN_MARKETPLACE: &str = "JuliusBrussee/caveman";
+/// Caveman level for the app's own Claude runs (`CAVEMAN_DEFAULT_MODE`).
+pub const CAVEMAN_MODE: &str = "ultra";
 const EXPIRED: &str = "Claude's sign-in has expired. Sign in again.";
 
 #[cfg(windows)]
@@ -249,6 +255,48 @@ fn install(app: &AppHandle) {
     }
 }
 
+/// Installs the caveman plugin into Claude Code unless it is already there
+/// (installed but disabled by the user counts as there).
+fn ensure_caveman(cli: &Path) {
+    let result = (|| -> Result<bool, String> {
+        let mut child = hidden(cli)
+            .args(["plugin", "list", "--json"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let mut stdout = child.stdout.take().ok_or("no output")?;
+        let reader = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stdout, &mut buf);
+            buf
+        });
+        wait_for(&mut child, STATUS_TIMEOUT)?;
+        let plugins: Vec<Value> = serde_json::from_slice(&reader.join().unwrap_or_default()).map_err(|e| e.to_string())?;
+        if plugins.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(CAVEMAN_ID)) {
+            return Ok(false);
+        }
+        let log = File::create(paths::data_dir().join("caveman-install.log")).map_err(|e| e.to_string())?;
+        let log_err = log.try_clone().map_err(|e| e.to_string())?;
+        let mut child = hidden(cli)
+            .args(["plugin", "install", "caveman", "--marketplace", CAVEMAN_MARKETPLACE, "--scope", "user"])
+            .stdout(log)
+            .stderr(log_err)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let status = wait_for(&mut child, PLUGIN_TIMEOUT)?;
+        if !status.success() {
+            return Err(format!("plugin install exited with {status}"));
+        }
+        Ok(true)
+    })();
+    match result {
+        Ok(true) => paths::log("claude: caveman plugin installed"),
+        Ok(false) => {}
+        Err(e) => paths::log(format!("claude: caveman plugin install failed: {e}")),
+    }
+}
+
 /// Starts `claude auth login` and waits until the CLI reports a sign-in.
 /// Hidden, it just opens the browser; `window` shows the CLI's own console,
 /// for when the hidden sign-in can't complete.
@@ -410,6 +458,7 @@ fn probe(app: &AppHandle, cli: &Path) {
 pub fn spawn_monitor(app: AppHandle) {
     std::thread::spawn(move || {
         let mut first = true;
+        let mut caveman_checked = false;
         loop {
             exclusive(&app, || {
                 if find_cli().is_none() {
@@ -418,8 +467,12 @@ pub fn spawn_monitor(app: AppHandle) {
                     check(&app);
                 }
                 let signed_in = app.state::<Claude>().status.lock().unwrap().state == AuthState::SignedIn;
-                if first && signed_in {
-                    if let Some(cli) = find_cli() {
+                if let Some(cli) = find_cli() {
+                    if !caveman_checked {
+                        ensure_caveman(&cli);
+                        caveman_checked = true;
+                    }
+                    if first && signed_in {
                         probe(&app, &cli);
                     }
                 }

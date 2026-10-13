@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { api, ClaudeStatus, StepIcon, UpdateStatus } from "./api";
 
 // ---- helpers ------------------------------------------------------------------
@@ -24,6 +24,13 @@ export function basename(path: string) {
   return parts[parts.length - 1] ?? path;
 }
 
+/** a stable colour per folder */
+export function hue(path: string) {
+  let h = 0;
+  for (const c of path.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+
 export function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -45,6 +52,33 @@ export const store = {
     }
   },
 };
+
+// ---- status ---------------------------------------------------------------------
+
+/** What is going on, as the orb in the bar and the glow under the cards show it. */
+export type Status = "idle" | "rec" | "paused" | "work" | "auto" | "voice" | "setup" | "ok" | "warn" | "error";
+
+/** how things look after a run ended well, so-so or badly */
+export const toneStatus = (tone: "ok" | "warn" | "error"): Status => tone;
+
+/**
+ * The status orb: a small dot whose colour and motion say what's going on
+ * (a ring spins while Claude works, it pulses with the voices while recording).
+ * `level` (0..1) is the audio level while recording.
+ */
+export function Orb({ status, level = 0, size = 12 }: { status: Status; level?: number; size?: number }) {
+  const lvl = Math.min(1, Math.sqrt(level) * 1.6);
+  return (
+    <span className={`orb is-${status}`} style={{ "--s": `${size}px`, "--lvl": lvl.toFixed(2) } as CSSProperties} aria-hidden>
+      <i />
+    </span>
+  );
+}
+
+/** a session's own colour, as a small rounded square (a ring spins on it while Claude works) */
+export function Mini({ hue, running, size = 14 }: { hue: number; running?: boolean; size?: number }) {
+  return <span className={`mini ${running ? "is-running" : ""}`} style={{ "--h": hue, "--s": `${size}px` } as CSSProperties} aria-hidden />;
+}
 
 // ---- small components -----------------------------------------------------------
 
@@ -100,22 +134,22 @@ export function ClaudeBanner({ claude, onLater }: { claude: ClaudeStatus; onLate
         {claude.message ?? "Claude needs attention"}
       </span>
       {!working && (
-        <button className="btn btn-ghost btn-sm" onClick={onLater}>
+        <button className="btn secondary sm" onClick={onLater}>
           Later
         </button>
       )}
       {canSignIn && claude.suggest_window && (
-        <button className="btn btn-ghost btn-sm" onClick={() => api.claudeLogin(true)}>
+        <button className="btn secondary sm" onClick={() => api.claudeLogin(true)}>
           Sign-in window
         </button>
       )}
       {canSignIn && (
-        <button className="btn btn-accent btn-sm" onClick={() => api.claudeLogin(false)}>
+        <button className="btn primary sm" onClick={() => api.claudeLogin(false)}>
           Sign in
         </button>
       )}
       {claude.state === "not_installed" && (
-        <button className="btn btn-accent btn-sm" onClick={() => api.claudeInstall()}>
+        <button className="btn primary sm" onClick={() => api.claudeInstall()}>
           Install
         </button>
       )}
@@ -141,11 +175,11 @@ export function UpdateBanner({ update, recording, onLater }: { update: UpdateSta
       </span>
       {!downloading && (
         <>
-          <button className="btn btn-ghost btn-sm" onClick={onLater}>
+          <button className="btn secondary sm" onClick={onLater}>
             Later
           </button>
           <button
-            className="btn btn-accent btn-sm"
+            className="btn primary sm"
             disabled={recording}
             title={recording ? "Finish the recording first" : "Download, install and restart"}
             onClick={() => api.updateInstall().catch(() => {})}
@@ -163,6 +197,11 @@ export function UpdateBanner({ update, recording, onLater }: { update: UpdateSta
 const svg = { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 const small = { ...svg, width: 13, height: 13 };
 
+export const HomeIcon = () => (
+  <svg {...small} fill="currentColor" stroke="none">
+    <path d="M10.6 3.1a2.2 2.2 0 0 1 2.8 0l7 5.7c.4.3.6.8.6 1.3V19a2 2 0 0 1-2 2h-4v-5.5a1.5 1.5 0 0 0-1.5-1.5h-3A1.5 1.5 0 0 0 9 15.5V21H5a2 2 0 0 1-2-2v-8.9c0-.5.2-1 .6-1.3z" />
+  </svg>
+);
 export const PinIcon = () => (
   <svg {...svg}>
     <path d="M12 17v5M9 3h6l-1 7 4 3v2H6v-2l4-3-1-7z" />

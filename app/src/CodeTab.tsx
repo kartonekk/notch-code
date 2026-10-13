@@ -3,7 +3,6 @@ import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, StepIcon } from "./api";
 import { Markdown } from "./Markdown";
-import { RecklessStrip } from "./Reckless";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
 import {
   AlertIcon,
@@ -12,7 +11,6 @@ import {
   ChevronIcon,
   CopyIcon,
   CrossIcon,
-  FlameIcon,
   formatDuration,
   ImageIcon,
   formatSpan,
@@ -544,15 +542,14 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
       {agents.error && <p className="error-text">{agents.error}</p>}
       {imageError && <p className="error-text">{imageError}</p>}
 
-      {reckless && <RecklessStrip running={running} />}
-
       <VoiceStrip voice={voice} />
 
       {/* ---- what's happening ---- */}
       {running && (
-        <div className="run-strip">
+        <div className={`run-strip ${reckless ? "is-auto" : ""}`}>
           <span className="mini-spinner" />
-          <span className="run-current">{session.current ?? "Thinking…"}</span>
+          {reckless && <span className="auto-tag">Auto</span>}
+          <span className="run-current shimmer">{session.current ?? "Thinking…"}</span>
           {stepElapsed && (
             <span className="run-step-time" title="How long this step has been running">
               {stepElapsed}
@@ -561,8 +558,8 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
           <span className="run-time" title="Since the message was sent">
             {stepElapsed ? `total ${elapsed}` : elapsed}
           </span>
-          <button className="run-stop" title="Stop (Esc)" onClick={() => agents.stop(sid)}>
-            <span className="stop-sq" /> Stop <kbd>Esc</kbd>
+          <button className="btn secondary sm" title="Stop (Esc)" onClick={() => agents.stop(sid)}>
+            Stop <span className="kbd">Esc</span>
           </button>
         </div>
       )}
@@ -597,68 +594,103 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
             ))}
           </div>
         )}
-        <textarea
-          onPaste={onPaste}
-          ref={inputRef}
-          rows={1}
-          value={draft}
-          placeholder={
-            running
-              ? "Add more details — sent when Claude finishes, nothing is interrupted"
-              : lastPrompt
-                ? "Reply, or ask for something else…"
-                : "Ask Claude to build, fix or explain something…"
-          }
-          onChange={(e) => setDraft(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            } else if (e.key === "Escape" && running) {
-              // here Esc stops Claude instead of closing the notch
-              e.preventDefault();
-              e.stopPropagation();
-              agents.stop(sid);
-            } else if (e.key === "ArrowUp" && !draft && lastPrompt) {
-              e.preventDefault();
-              setDraft(lastPrompt);
+        <div className="chat-bar">
+          <textarea
+            onPaste={onPaste}
+            ref={inputRef}
+            rows={1}
+            value={draft}
+            placeholder={
+              running
+                ? "Add more details — sent when Claude finishes, nothing is interrupted"
+                : lastPrompt
+                  ? "Reply, or ask for something else…"
+                  : "Ask Claude to build, fix or explain something…"
             }
-          }}
-        />
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              } else if (e.key === "Escape" && running) {
+                // here Esc stops Claude instead of closing the notch
+                e.preventDefault();
+                e.stopPropagation();
+                agents.stop(sid);
+              } else if (e.key === "ArrowUp" && !draft && lastPrompt) {
+                e.preventDefault();
+                setDraft(lastPrompt);
+              }
+            }}
+          />
+          <div className="chat-tools" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="tool-btn"
+              title="Attach images (or paste / drop them here)"
+              aria-label="Attach images"
+              disabled={pickingImages}
+              onClick={pickImages}
+            >
+              <ImageIcon />
+            </button>
+
+            <MicButton voice={voice} />
+
+            {running && !draft.trim() && images.length === 0 ? (
+              <button type="button" className="send-btn is-stop" title="Stop (Esc)" aria-label="Stop" onClick={() => agents.stop(sid)}>
+                <span className="stop-sq" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className={`send-btn ${running ? "is-queue" : ""}`}
+                title={running ? "Queue (Enter): sent when Claude finishes" : "Send (Enter)"}
+                aria-label="Send"
+                disabled={!draft.trim() && images.length === 0}
+              >
+                <SendIcon />
+              </button>
+            )}
+          </div>
+        </div>
         <div className="composer-foot" onClick={(e) => e.stopPropagation()}>
-          <div className="segmented modes" role="radiogroup" aria-label="What Claude may do">
+          <div className="seg modes" role="radiogroup" aria-label="What Claude may do">
             {MODES.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 role="radio"
                 aria-checked={agents.mode === m.id}
-                className={`${agents.mode === m.id ? "is-active" : ""} mode-${m.id}`}
+                className={`${agents.mode === m.id ? "on" : ""} mode-${m.id}`}
                 title={m.title}
                 onClick={() => agents.setMode(m.id)}
               >
-                {m.icon === "flame" ? <FlameIcon /> : <StepGlyph icon={m.icon} />}
+                {m.icon === "flame" ? <span className="auto-dot" /> : <StepGlyph icon={m.icon} />}
                 {m.label}
               </button>
             ))}
           </div>
 
+          <span className="mode-hint">{running && draft.trim() ? "Enter queues it — Claude keeps going" : modeInfo.hint}</span>
+
           <div className="model">
             <button
               type="button"
-              className={`model-btn ${modelOpen ? "is-open" : ""}`}
+              className={`model-btn ${modelOpen ? "open" : ""}`}
               title={`Model${session.model ? ` — last run: ${session.model}` : ""}`}
               onClick={() => setModelOpen(!modelOpen)}
             >
-              {MODELS.find((m) => m.id === agents.model)?.label ?? agents.model}
+              <span className="model-dot" />
+              <span className="model-name">{MODELS.find((m) => m.id === agents.model)?.label ?? agents.model}</span>
               <ChevronIcon open={!modelOpen} />
             </button>
             {modelOpen && (
               <>
                 <div className="menu-scrim" onClick={() => setModelOpen(false)} />
-                <div className="menu menu-up" role="menu">
+                <div className="menu menu-up menu-right" role="menu">
                   {MODELS.map((m) => (
                     <button
                       key={m.id}
@@ -679,37 +711,6 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
               </>
             )}
           </div>
-
-          <span className="mode-hint">{running && draft.trim() ? "Enter queues it — Claude keeps going" : modeInfo.hint}</span>
-
-          <button
-            type="button"
-            className="mic-btn"
-            title="Attach images (or paste / drop them here)"
-            aria-label="Attach images"
-            disabled={pickingImages}
-            onClick={pickImages}
-          >
-            <ImageIcon />
-          </button>
-
-          <MicButton voice={voice} />
-
-          {running && !draft.trim() && images.length === 0 ? (
-            <button type="button" className="send-btn is-stop" title="Stop (Esc)" aria-label="Stop" onClick={() => agents.stop(sid)}>
-              <span className="stop-sq" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              className={`send-btn ${running ? "is-queue" : ""}`}
-              title={running ? "Queue (Enter): sent when Claude finishes" : "Send (Enter)"}
-              aria-label="Send"
-              disabled={!draft.trim() && images.length === 0}
-            >
-              <SendIcon />
-            </button>
-          )}
         </div>
       </form>
     </div>
@@ -942,20 +943,22 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
     <>
       {done.denied.length > 0 && (
         <div className="denied">
-          <div className="denied-head">
-            <AlertIcon /> Claude wasn't allowed to:
+          <div className="who-row">
+            <AlertIcon /> <span className="n">Claude</span> needs permission
           </div>
-          <ul>
+          <div className="denied-list">
             {done.denied.map((d) => (
-              <li key={d.rule} title={d.rule}>
+              <span key={d.rule} className="code-chip" title={d.rule}>
                 {d.label}
-              </li>
+              </span>
             ))}
-          </ul>
+          </div>
           {canAct && (
-            <button className="btn btn-accent btn-sm" onClick={() => onAllow(done.denied.map((d) => d.rule))}>
-              Allow and continue
-            </button>
+            <div className="actions">
+              <button className="btn primary sm" onClick={() => onAllow(done.denied.map((d) => d.rule))}>
+                Allow and continue
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -969,7 +972,7 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
               : (done.message ?? "Something went wrong")}
         </span>
         {canAct && (done.stopped || !done.ok) && (
-          <button className="mini-btn" title="Send the same message again" onClick={onRetry}>
+          <button className="btn secondary xs" title="Send the same message again" onClick={onRetry}>
             <RetryIcon /> Retry
           </button>
         )}

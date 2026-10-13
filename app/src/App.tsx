@@ -2,10 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { api, AppStatus, ClaudeStatus, Limit, on, SessionStatus, UpdateStatus } from "./api";
 import { Agents, AgentNotice, CodeTab, stepTime, useAgents } from "./CodeTab";
-import { Home, hue } from "./Home";
-import { Mood, Hum, toneMood } from "./Hum";
+import { Home, homePills } from "./Home";
 import { useVoice, voiceLine } from "./Voice";
-import { Embers } from "./Reckless";
 import { PILL_STEP, PILL_WIDTH, ReviewPills, useReview } from "./Review";
 import { SPEAKER_LABEL, TranscribeTab, useTranscription } from "./TranscribeTab";
 import {
@@ -16,30 +14,43 @@ import {
   ChevronIcon,
   ClaudeBanner,
   CrossIcon,
-  FolderIcon,
   formatDuration,
+  HomeIcon,
+  hue,
   IconButton,
   KeyIcon,
   MicIcon,
+  Mini,
   needsClaudeAttention,
+  Orb,
   PinIcon,
   PlusIcon,
   PowerIcon,
+  Status,
   store,
   TerminalIcon,
   MicOffIcon,
+  toneStatus,
   UpdateBanner,
   Bars,
 } from "./ui";
 import "./notch.css";
 
-// Notch sizes in logical pixels. The window itself always has the EXPANDED size
-// (see WINDOW_W in lib.rs); the backend makes everything outside the current
-// notch click-through and reports hover via the `notch-hover` event.
-const COLLAPSED = { w: 280, h: 36 };
-const COLLAPSED_LIVE = { w: 460, h: 36 };
-const EXPANDED = { w: 680, h: 500 };
-const ANIM_MS = 260;
+// Notch sizes in logical pixels. The window itself always has the largest
+// expanded size (see WINDOW_W / WINDOW_H in lib.rs); the backend makes everything
+// outside the current notch click-through and reports hover via `notch-hover`.
+const COMPACT = { w: 288, h: 32 };
+const COMPACT_LIVE = { w: 440, h: 32 };
+const EXPANDED_W = 640;
+/** the tallest the expanded notch gets (WINDOW_H in lib.rs is this + its margin) */
+export const EXPANDED_MAX_H = 500;
+/** padding (8 + 10) and the 34 px header around a view */
+const CHROME_H = 52;
+const BANNER_H = 38;
+const PILL_ROW = 32;
+/** tall enough for the + menu under the tabs */
+const TAB_MENU_H = 340;
+const ANIM_MS = 300;
 /** "Later" on the Claude sign-in reminder hides it for this long */
 const CLAUDE_SNOOZE_MS = 60 * 60 * 1000;
 
@@ -58,6 +69,8 @@ export default function App() {
   const [view, setViewState] = useState<View | null>(null);
   /** a view is in the middle of something (typing, choosing a folder) */
   const [hold, setHold] = useState(false);
+  /** the + menu in the tab row is open: the island makes room for it */
+  const [tabMenu, setTabMenu] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   const agents = useAgents(expanded, typeof view === "number" ? view : null);
@@ -183,7 +196,32 @@ export default function App() {
   const finished = !expanded && !working && !!notice;
   const flash = !expanded ? agents.flash : null;
   const live = recording || working || finished || pills > 0 || voice.active || !!flash;
-  const collapsedSize = live ? COLLAPSED_LIVE : COLLAPSED;
+  const compactSize = live ? COMPACT_LIVE : COMPACT;
+
+  const claudeAlert = needsClaudeAttention(claude);
+  const claudeBusy = claude?.state === "signing_in" || claude?.state === "installing";
+  const showClaudeBanner = claudeBusy || (claudeAlert && Date.now() >= claudeSnoozedUntil);
+  const showUpdate =
+    update?.state === "downloading" ||
+    ((update?.state === "available" || update?.state === "error") && update.available !== skippedBuild);
+  const banners = (showClaudeBanner && claude ? 1 : 0) + (showUpdate && update ? 1 : 0);
+
+  // the open notch is as tall as what it shows, like a chat that grows
+  const viewH =
+    view === "transcribe"
+      ? recording
+        ? 420
+        : phase === "ready"
+          ? Math.min(400, 170 + Math.max(1, rec.sources.length) * 46)
+          : 230
+      : current
+        ? current.running || agents.feed(current.id).length > 0
+          ? 450
+          : 340
+        : CHROME_H + Math.max(132, Math.ceil(homePills(agents).count / 2) * PILL_ROW + 20);
+  const expandedH = Math.min(EXPANDED_MAX_H, Math.max(viewH + banners * BANNER_H, tabMenu ? TAB_MENU_H : 0));
+  const expandedHRef = useRef(expandedH);
+  expandedHRef.current = expandedH;
 
   const clearTimers = () => {
     if (collapseTimer.current) window.clearTimeout(collapseTimer.current);
@@ -193,7 +231,7 @@ export default function App() {
 
   const expand = useCallback(async () => {
     clearTimers();
-    await api.setNotchSize(EXPANDED.w, EXPANDED.h);
+    await api.setNotchSize(EXPANDED_W, expandedHRef.current);
     setExpanded(true);
     api.claudeRefresh().catch(() => {});
   }, []);
@@ -203,7 +241,12 @@ export default function App() {
     setExpanded(false);
   }, []);
 
-  const keepOpen = pinned || hold || picking || rec.ending;
+  // the hit area follows the open notch when the view grows or shrinks
+  useEffect(() => {
+    if (expanded) api.setNotchSize(EXPANDED_W, expandedH);
+  }, [expanded, expandedH]);
+
+  const keepOpen = pinned || hold || tabMenu || picking || rec.ending;
   const onEnter = () => {
     if (collapseTimer.current) window.clearTimeout(collapseTimer.current);
     collapseTimer.current = null;
@@ -240,8 +283,8 @@ export default function App() {
       return () => window.clearTimeout(t);
     }
   }, [expanded]);
-  const hitWidth = pills > 0 ? Math.max(collapsedSize.w, PILL_WIDTH) : collapsedSize.w;
-  const hitHeight = collapsedSize.h + (pills > 0 ? 8 + pills * PILL_STEP : 0);
+  const hitWidth = pills > 0 ? Math.max(compactSize.w, PILL_WIDTH) : compactSize.w;
+  const hitHeight = compactSize.h + (pills > 0 ? 8 + pills * PILL_STEP : 0);
   useEffect(() => {
     if (!shell && !expanded) api.setNotchSize(hitWidth, hitHeight);
   }, [shell, expanded, hitWidth, hitHeight]);
@@ -274,13 +317,7 @@ export default function App() {
   }, [expanded]);
 
   // ---- derived ------------------------------------------------------------------
-  const size = expanded ? EXPANDED : collapsedSize;
-  const claudeAlert = needsClaudeAttention(claude);
-  const claudeBusy = claude?.state === "signing_in" || claude?.state === "installing";
-  const showClaudeBanner = claudeBusy || (claudeAlert && Date.now() >= claudeSnoozedUntil);
-  const showUpdate =
-    update?.state === "downloading" ||
-    ((update?.state === "available" || update?.state === "error") && update.available !== skippedBuild);
+  const size = expanded ? { w: EXPANDED_W, h: expandedH } : compactSize;
   const limit = agents.limit;
   const limitHit = limit?.status === "rejected" && (limit.resets_at ?? 0) > Date.now();
   // the session the collapsed bar talks about: the one you look at, else the first busy one
@@ -291,7 +328,8 @@ export default function App() {
   const busyElapsed = busy?.started_at ? formatDuration(now - busy.started_at) : "";
   const busyStep = busy ? stepTime(busy, now) : "";
   const level = recording && !paused ? Math.max(rec.levels.app, rec.levels.mic) : 0;
-  // when nothing is going on the bar holds just a sleeping Hum; only things that need you show up
+  // when nothing is going on the bar holds just the orb and the sessions' colours;
+  // only things that need you show up as text
   const idleMessage =
     phase === "preparing" && status?.progress != null
       ? `Downloading speech model ${Math.round(status.progress * 100)}%`
@@ -304,41 +342,41 @@ export default function App() {
           : phase === "error"
             ? "Speech model error — hover"
             : null;
-  const mood: Mood = voice.active
+  const barStatus: Status = voice.active
     ? "voice"
     : flash
-      ? toneMood(flash.tone)
+      ? toneStatus(flash.tone)
       : recording
         ? paused
           ? "paused"
-          : "listen"
+          : "rec"
         : working
           ? reckless
-            ? "fire"
+            ? "auto"
             : "work"
           : finished && notice
-            ? toneMood(notice.tone)
+            ? toneStatus(notice.tone)
             : phase === "error" || limitHit
               ? "error"
               : claudeAlert
                 ? "warn"
                 : phase === "preparing"
-                  ? "work"
-                  : expanded
-                    ? "idle"
-                    : "sleep";
+                  ? "setup"
+                  : "idle";
+  const sessionGlow = (s: SessionStatus): Status => {
+    const tone = agents.unseen[s.id];
+    return s.running ? (reckless ? "auto" : "work") : tone ? toneStatus(tone) : "idle";
+  };
 
   return (
     <div className="stage">
       <div
         className={[
-          "notch",
+          "island",
           expanded && "is-expanded",
-          `phase-${phase}`,
-          reckless && "is-reckless",
-          working && "is-working",
+          `status-${barStatus}`,
+          finished && notice && "is-finished",
           igniting && "is-igniting",
-          finished && notice && `is-finished tone-${notice.tone}`,
         ]
           .filter(Boolean)
           .join(" ")}
@@ -347,12 +385,10 @@ export default function App() {
         onPointerEnter={() => (overNotch.current = true)}
         onPointerLeave={() => (overNotch.current = false)}
       >
-        <span className="ear ear-l" />
-        <span className="ear ear-r" />
-        <div className="notch-clip">
+        <div className="island-clip">
           {/* ---------- collapsed bar ---------- */}
           <div className="bar" onPointerEnter={() => !expanded && onEnter()}>
-            <Hum mood={mood} size={40} level={level} className="bar-hum" />
+            <Orb status={barStatus} level={level} />
             {voice.active ? (
               <span className={`ticker ${voice.phase === "hearing" && voice.text ? "" : "muted"}`}>{voiceLine(voice)}</span>
             ) : flash ? (
@@ -365,12 +401,12 @@ export default function App() {
             ) : working && recording ? (
               <>
                 <span className={`timer ${paused ? "is-paused" : ""}`}>{rec.elapsed}</span>
-                <span className="ticker">{busyText}</span>
+                <span className="ticker shimmer">{busyText}</span>
                 {busyStep && <span className="bar-step-time">{busyStep}</span>}
               </>
             ) : working ? (
               <>
-                <span className="ticker">{busyText}</span>
+                <span className="ticker shimmer">{busyText}</span>
                 {busyStep && <span className="bar-step-time">{busyStep}</span>}
                 <span className="bar-time">{busyElapsed}</span>
               </>
@@ -395,28 +431,32 @@ export default function App() {
                 <span className="ticker">{notice.text}</span>
                 <span className="bar-hint">hover to see</span>
               </>
-            ) : idleMessage ? (
+            ) : (
               <>
-                <span className="bar-label">{idleMessage}</span>
+                {idleMessage ? <span className="bar-label">{idleMessage}</span> : <span className="grow" />}
                 {claudeAlert && (
                   <span className="claude-alert" title={claude?.message ?? "Claude needs attention"}>
                     <KeyIcon />
                   </span>
                 )}
+                {sessions.length > 0 && (
+                  <span className="bar-minis">
+                    {sessions.slice(0, 4).map((s) => (
+                      <Mini key={s.id} hue={hue(s.project)} size={12} />
+                    ))}
+                  </span>
+                )}
               </>
-            ) : null}
+            )}
           </div>
 
           {/* ---------- expanded panel ---------- */}
           {shell && (
             <div className="panel" onClick={(e) => e.stopPropagation()}>
-              {reckless && <Embers fast={working} />}
-              <header className="topbar">
+              <header className="header">
                 <Tabs
                   agents={agents}
                   view={view}
-                  mood={mood}
-                  level={level}
                   recording={recording}
                   paused={paused}
                   elapsed={rec.elapsed}
@@ -424,9 +464,9 @@ export default function App() {
                   onView={setView}
                   onOpen={openSession}
                   onPick={pickAndOpen}
-                  onHold={setHold}
+                  onHold={setTabMenu}
                 />
-                <div className="head-actions">
+                <div className="header-actions">
                   {claude?.state === "signed_in" && <LimitChip plan={claude.plan} limit={agents.limit} />}
                   <IconButton
                     title={
@@ -457,22 +497,22 @@ export default function App() {
 
               <div className="view" key={String(view)}>
                 {view === "transcribe" ? (
-                  <section className="card">
+                  <section className={`card wash glow-${recording ? (paused ? "paused" : "rec") : phase === "error" ? "error" : "idle"}`}>
                     <TranscribeTab t={rec} status={status} />
                   </section>
                 ) : current ? (
-                  <section className="card">
+                  <section className={`card wash glow-${sessionGlow(current)}`} style={{ "--h": hue(current.project) } as CSSProperties}>
                     <header className="card-head">
                       <ProjectMenu agents={agents} session={current} onPick={pickAndOpen} onHold={setHold} onTerminal={openTerminal} />
                       <button
-                        className="new-chat"
+                        className="btn secondary sm"
                         title={"Open a terminal in this folder (Ctrl+`)\nClaude can open one too, for dev servers and watchers"}
                         onClick={() => openTerminal(current.project)}
                       >
                         <TerminalIcon /> Terminal
                       </button>
                       <button
-                        className="new-chat"
+                        className="btn secondary sm"
                         title="New conversation (Ctrl+N)"
                         disabled={current.running || agents.feed(current.id).length === 0}
                         onClick={() => agents.newChat(current.id)}
@@ -485,8 +525,6 @@ export default function App() {
                   </section>
                 ) : (
                   <Home
-                    mood={mood}
-                    level={level}
                     rec={rec}
                     status={status}
                     agents={agents}
@@ -520,14 +558,12 @@ function clock(ms: number) {
 }
 
 /**
- * The top of the panel: Hum (the overview), the transcriber, one tab per Claude
- * session (its state at a glance), and + for another folder.
+ * The top of the panel: the overview, the transcriber, one tab per Claude
+ * session in its own colour (its state at a glance), and + for another folder.
  */
 function Tabs({
   agents,
   view,
-  mood,
-  level,
   recording,
   paused,
   elapsed,
@@ -539,8 +575,6 @@ function Tabs({
 }: {
   agents: Agents;
   view: View | null;
-  mood: Mood;
-  level: number;
   recording: boolean;
   paused: boolean;
   elapsed: string;
@@ -556,17 +590,17 @@ function Tabs({
   const recent = agents.recent.filter((p) => !openPaths.has(p.toLowerCase()));
   return (
     <nav className="tabs">
-      <button className={`tab tab-home ${view === "home" ? "is-active" : ""}`} title="Overview (Ctrl+H)" onClick={() => onView("home")}>
-        <Hum mood={mood} size={30} level={level} />
+      <button className={`tab tab-icon ${view === "home" ? "is-active" : ""}`} title="Overview (Ctrl+H)" onClick={() => onView("home")}>
+        <HomeIcon />
       </button>
 
       <button
-        className={`tab tab-rec ${view === "transcribe" ? "is-active" : ""} ${recording ? (paused ? "is-paused" : "is-recording") : ""}`}
+        className={`tab tab-icon tab-rec ${view === "transcribe" ? "is-active" : ""} ${recording ? (paused ? "is-paused" : "is-recording") : ""}`}
         title="Transcribe (Ctrl+M)"
         onClick={() => onView("transcribe")}
       >
         {recording ? <span className="tab-rec-dot" /> : <MicIcon />}
-        {recording ? <span className="tab-timer">{elapsed}</span> : "Transcribe"}
+        {recording && <span className="tab-timer">{elapsed}</span>}
       </button>
 
       <span className="tabs-sep" />
@@ -582,8 +616,9 @@ function Tabs({
               title={`${basename(s.project)}${s.running ? ` — ${s.current ?? "working"}` : ""}\n${s.project}\nCtrl+${i + 1}`}
               onClick={() => onView(s.id)}
             >
-              <Hum mood={s.running ? (agents.mode === "reckless" ? "fire" : "work") : tone ? toneMood(tone) : "idle"} hue={hue(s.project)} size={24} />
+              <Mini hue={hue(s.project)} running={s.running} size={10} />
               <span className="tab-name">{basename(s.project)}</span>
+              {tone && !s.running && <span className={`tab-badge is-${tone}`} />}
               {queued > 0 && <span className="tab-count">{queued}</span>}
             </button>
             <button
@@ -665,7 +700,7 @@ function ProjectMenu({
   return (
     <div className="project">
       <button className={`project-btn ${open ? "is-open" : ""}`} title={session.project} onClick={() => setOpen(!open)}>
-        <FolderIcon size={13} />
+        <Mini hue={hue(session.project)} running={session.running} size={10} />
         <span className="project-name">{basename(session.project)}</span>
         <ChevronIcon open={open} />
       </button>

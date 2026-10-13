@@ -443,6 +443,8 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
         }
         Err(e) => paths::log(format!("notch-terminal unavailable: {e}")),
     }
+    // caveman plugin (installed at startup): terse answers save tokens
+    cmd.env("CAVEMAN_DEFAULT_MODE", claude::CAVEMAN_MODE);
     cmd.current_dir(&project).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {

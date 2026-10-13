@@ -81,7 +81,7 @@ export function Counts({ added, removed }: { added: number; removed: number }) {
 }
 
 /** pixels each notification takes under the notch */
-export const PILL_STEP = 42;
+export const PILL_STEP = 40;
 /** widest a notification gets when it opens sideways */
 export const PILL_WIDTH = 460;
 
@@ -93,7 +93,7 @@ export const PILL_WIDTH = 460;
 export function ReviewPills({ review, busy, onHover }: { review: ReviewState; busy: (project: string) => boolean; onHover: (over: boolean) => void }) {
   const many = review.pending.length > 1;
   return (
-    <div className="pills" onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} onClick={(e) => e.stopPropagation()}>
+    <div className="review-pills" onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} onClick={(e) => e.stopPropagation()}>
       {review.pending.slice(0, 3).map((p, i) => (
         <ReviewPill key={p} r={review.forProject(p)} showProject={many} busy={busy(p)} index={i} />
       ))}
@@ -104,10 +104,10 @@ export function ReviewPills({ review, busy, onHover }: { review: ReviewState; bu
 function ReviewPill({ r, showProject, busy, index }: { r: ProjectReview; showProject: boolean; busy: boolean; index: number }) {
   const n = r.files.length;
   return (
-    <div className="pill" style={{ top: index * PILL_STEP, animationDelay: `${index * 60}ms` }} title={r.files.map((f) => f.name).join("\n")}>
+    <div className="review-pill" style={{ top: index * PILL_STEP, animationDelay: `${index * 60}ms` }} title={r.files.map((f) => f.name).join("\n")}>
       <span className="pill-side pill-left">
         <ConfirmButton
-          className="pill-btn reject"
+          className="btn secondary sm reject"
           label="Reject"
           confirm="Undo all?"
           title="Put every file back the way it was"
@@ -124,11 +124,11 @@ function ReviewPill({ r, showProject, busy, index }: { r: ProjectReview; showPro
       </span>
       <span className="pill-side pill-right">
         {r.vscode && (
-          <button className="pill-btn diff" title="Open every change side by side in VS Code" onClick={r.diffAll}>
+          <button className="btn secondary sm" title="Open every change side by side in VS Code" onClick={r.diffAll}>
             Diff
           </button>
         )}
-        <button className="pill-btn accept" title="Keep all changes" onClick={() => r.accept()}>
+        <button className="btn primary sm" title="Keep all changes" onClick={() => r.accept()}>
           <CheckIcon /> Accept
         </button>
       </span>

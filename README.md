@@ -1,63 +1,78 @@
 <div align="center">
 
-<img src="docs/hum.svg" width="820" alt="Hum, the Notch Code mascot, in each of its moods">
-
 # Notch Code
 
-**Claude Code and live meeting transcription, living in a notch at the top of your screen.**<br>
-Fully local speech recognition · several Claude sessions at once · one small `.exe`
+**Claude Code and live meeting transcription in a small black island at the top of your screen.**
+
+Fully local speech recognition · several Claude sessions at once · one small `.exe` for Windows
+
+<img src="docs/notch.svg" width="100%" alt="The collapsed island: idle with the sessions' colours, recording a meeting, Claude at work, done">
 
 </div>
 
-<img src="docs/notch.svg" width="100%" alt="The collapsed notch: Hum naps, records a meeting, watches Claude work, and hops when it's done">
+---
 
-## Meet Hum
+## At a glance
 
-Hum is the little bun with headphones that lives in the notch. The pads of its headphones tell you what's going on:
+The island sits at the top centre of your screen. Closed, it's a 288 px bar. A status dot sits on the left and each Claude session's colour sits on the right. It only shows text when something needs you:
 
-| Hum | Means |
+| The dot | Means |
 |---|---|
-| eyes shut, pads lilac | nothing going on, the notch stays small |
-| pads **red**, sound bars bouncing on them | recording a meeting; the bars get stronger with the voices |
-| pads **yellow**, eyes shut | recording paused |
-| pads **blue**, eyes scanning, typing dots | Claude is working (orange in *Reckless* mode) |
-| pads **cyan**, mouth open | taking a spoken prompt ("Claude, …") |
-| **green**, ^ ^ and a few hops | Claude finished |
-| frowning, shaking | something failed |
+| grey, breathing slowly | nothing going on |
+| **red**, pulsing with the voices | recording a meeting (timer + the last line said) |
+| **amber** | recording paused, or Claude needs sign-in |
+| **blue**, a ring turning | Claude is working (the bar shows the step it's on) |
+| **amber**, a ring turning | Claude is working in **Auto** mode |
+| **cyan** | taking a spoken prompt ("Claude, …") |
+| **green** | Claude finished while the island was closed (it glows until you look) |
+| **red** | something failed |
 
-## Open it: everything at a glance
+While something is going on, the bar widens to 440 px and a thin line in the same colour runs along its bottom edge.
 
-Hover the notch and it opens. The top row has a tab for every place you can go: **Hum** (the overview, Ctrl+H), **Transcribe** (Ctrl+M), one tab per Claude session in its own colour (Ctrl+1…9) and **+** for another folder (Ctrl+T). Ctrl+Tab cycles through them.
+## Open it
 
-<img src="docs/overview.svg" width="100%" alt="The open notch: Hum on the left offers the next step, tiles for the transcriber and every Claude session on the right">
+Hover the island and it grows into a 640 px panel. Its height follows what it shows. The tab row holds the **overview** (Ctrl+H) and the **transcriber** (Ctrl+M). Next come one tab per Claude session in its own colour (Ctrl+1…9) and **+** for another folder (Ctrl+T). Ctrl+Tab cycles through them. On the right are the 5-hour limit, the voice switch, pin, and quit.
 
-The **overview** puts what matters most on the left, with its next step one click away: *Pause / End* while recording, *Watch / Stop* while Claude works, otherwise *Transcribe* or *Ask Claude*. On the right is a tile for the transcriber, for every Claude session (what it's doing right now, or "Done — new reply") and for your recent folders.
+<img src="docs/overview.svg" width="100%" alt="The open island: a status card on the left with the session at work and its last steps, a grid of pills on the right">
 
-## Transcribe
+The **overview** has two cards:
 
-<img src="docs/transcribe.svg" width="100%" alt="Live transcription: Hum listening, audio levels, timer, Pause and End on top, the transcript scrolling below">
-
-Live meeting transcription (Webex, Teams, Zoom, browser…), fully local: nothing goes to the cloud.
-
-- **Two steps.** The app playing the meeting audio is already picked, so press **Enter** (or the big Start button). Double-clicking any app starts it too.
-- **Everything on top while recording.** Hum, the App and Mic levels, the timer, **Pause** (Space) and **End** sit in one row above the transcript. **End** asks for the meeting topic, which becomes the file name.
-- **Audio from a single app**: WASAPI *process loopback* capture (only the selected program, not the whole system), plus your microphone if you want (labelled "Me").
-- **Local speech recognition**: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (`large-v3-turbo`, q5_0 quantization) on the GPU via Vulkan.
-- **Single exe**: the model (~550 MB) downloads on first launch, with progress shown in the notch.
-- Transcripts are saved as Markdown in `Documents\Notch Code`.
+- **Left: what matters most right now, with its next step.** The live transcript with **Pause** / **End**, or the busy session's last steps with **Watch** / **Stop**. Otherwise **Transcribe** or **Ask Claude**. A soft glow at the bottom of the card takes the colour of what's going on.
+- **Right: a pill for every place you can jump into.** The transcriber, every Claude session (tinted in its colour, a ring turns while it works, a dot when a new reply is waiting), recent folders, and **New session**.
 
 ## Claude Code
 
-- Pick a project folder, type what you want, Enter. Claude Code runs hidden in that folder, and every step shows up as one plain line ("Editing App.tsx", "Running npm test"); click it for the command and output. Several folders can work at once, each in its own tab. While the notch is closed the bar shows the current step, then "finished".
-- **Modes**: *Auto* (Claude decides, risky commands blocked), *Edits* (commands need your OK), *Plan* (read-only), *Reckless* (no permission checks, changes kept automatically). Anything a mode blocks is listed with **Allow and continue**.
-- **Terminals**: **Terminal** (Ctrl+`) opens a cmd window in the session's folder. Claude's own shell is hidden, so for anything you should see or that keeps running (a dev server, a watcher, an interactive tool) Claude runs `notch-terminal <command>`, which opens a visible cmd window in that folder. The permission mode still decides whether Claude may run it.
-- **Voice**: say "Claude, …" or press the mic button; the prompt is sent when you stop talking.
-- **Model** picker (Default / Fable / Opus / Sonnet / Haiku) and the **5-hour limit** (% left, reset time) in the top bar, as reported by Claude.
-- **Review changes**: each file is snapshotted before Claude first edits it (a `PreToolUse` hook). Changed files are listed with **Accept** / **Reject** (per file or all); with the notch closed, a pill drops below it with the same buttons. **Live diff** opens every changed file in VS Code as original ↔ current, following Claude's edits live.
+<img src="docs/session.svg" width="100%" alt="A Claude session in Auto mode: your message, Claude's answer, one line per step, the step it's on, the chat bar, and the mode and model switches">
+
+- **Pick a folder, type, Enter.** Claude Code runs hidden in that folder. Every step is one plain line ("Editing App.tsx", "Running npm test"); click it for the command and its output. Several folders can work at once, each in its own tab. Messages you write while Claude works are queued and sent when it finishes.
+- **Modes** (Shift+Tab):
+  - **Auto**: no permission prompts, every change kept. While it works, the card glows amber.
+  - **Edits**: commands need your OK, and changes wait for review.
+  - **Plan**: read-only; Claude proposes a plan.
+
+  Anything a mode blocks shows up as a permission card with **Allow and continue**.
+- **Model**: Default / Fable / Opus / Sonnet / Haiku, next to the chat bar.
+- **Images**: paste them, drop them on the panel, or use the image button.
+- **Terminals**: **Terminal** (Ctrl+`) opens a cmd window in the session's folder. Claude's own shell is hidden, so for anything you should see or that keeps running (dev servers, watchers), Claude runs `notch-terminal <command>`. That opens a visible window in the folder, still subject to the permission mode.
+- **Voice**: say "Claude, …" or press the mic in the chat bar. The prompt is sent when you stop talking.
+- **Review changes**: each file is snapshotted before Claude first edits it (a `PreToolUse` hook). With the island closed, a pill drops below it per project. Hover it for **Reject** / **Diff** / **Accept**. **Diff** opens every change side by side in VS Code.
+
+## Transcribe
+
+<img src="docs/transcribe.svg" width="100%" alt="Live transcription: recording dot, source, App and Mic levels, timer, Pause and End on top, the transcript below">
+
+Live meeting transcription (Webex, Teams, Zoom, browser…), fully local: nothing goes to the cloud.
+
+- **Two steps.** The app playing the meeting audio is already picked, so press **Enter** (or **Start**). Double-clicking any app starts it too.
+- **One row on top while recording**: the source, App and Mic levels, the timer, **Pause** (Space) and **End**. **End** asks for the meeting topic, which becomes the file name.
+- **Audio from a single app**: WASAPI *process loopback* capture records only the selected program, not the whole system. Your microphone can be added too, labelled "Me".
+- **Local speech recognition**: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (`large-v3-turbo`, q5_0) on the GPU via Vulkan.
+- **Single exe**: the model (~550 MB) downloads on first launch, with progress shown in the island.
+- Transcripts are saved as Markdown in `Documents\Notch Code`.
 
 ## Download
 
-A ready-made `NotchCode.exe` is in **Releases** — every push to `main` publishes a new release (`build-<number>`), the newest one marked *Latest*.
+A ready-made `NotchCode.exe` is in **Releases**. Every push to `main` publishes a new release (`build-<number>`), the newest one marked *Latest*.
 
 Requirements: Windows 10 2004+ / Windows 11, a GPU driver with Vulkan support (NVIDIA / AMD / Intel), WebView2 (built into Windows 11).
 
@@ -66,21 +81,24 @@ Requirements: Windows 10 2004+ / Windows 11, a GPU driver with Vulkan support (N
 | What | Where |
 |---|---|
 | Transcripts | `Documents\Notch Code` |
-| Model, settings (`config.json`), log | `%LOCALAPPDATA%\Notch Code` |
+| Model, settings (`config.json`), logs | `%LOCALAPPDATA%\Notch Code` |
 
 Folders from the app's former name (`%LOCALAPPDATA%\Transkrypt`, `Documents\Transkrypty`) are moved to the new locations automatically on first launch.
 
-## Start with Windows & updates
-
-- **Start with Windows** — on every launch the app registers a Task Scheduler logon task (`Notch Code`) for the current user, so it starts right at sign-in (no startup-app delay, normal priority). Toggle it from the tray menu (**Start with Windows**) or `autostart` in `config.json`. Local dev builds don't register.
-- **Updates** — builds from CI carry their build number. Shortly after launch and every 15 minutes the app checks GitHub Releases for a newer `build-<n>`; if there is one, the notch shows **Update available** with **Update** / **Later**. Nothing is downloaded or installed until you click **Update** (disabled while recording). The new exe is checked (size, SHA-256 from GitHub, PE header), swapped in place and the app restarts. Tray: **Check for updates**. Local release builds count as build 0, so they're offered the newest CI build; `tauri dev` builds never check.
+`config.json`: `language` (`pl`, `en`, `auto`…), `model`, `use_gpu`, `threads`, `live_preview`.
 
 ## Claude Code setup
 
-On startup the app looks for the Claude Code CLI (`%USERPROFILE%\.local\bin\claude.exe` or `PATH`) and installs it with the official installer if it's missing (log: `%LOCALAPPDATA%\Notch Code\claude-install.log`).
-It checks the sign-in (`claude auth status`) at startup, every 30 minutes and when the notch is opened. When Claude needs to be signed in again, a key icon appears in the notch, the bar says *Claude needs sign-in*, and the panel shows a reminder with **Sign in** (opens the browser) — or **Sign-in window** if the background sign-in can't finish.
+All of this happens on its own at startup:
 
-`config.json`: `language` (`pl`, `en`, `auto`…), `model`, `use_gpu`, `threads`, `live_preview`.
+- **The CLI.** The app looks for `claude.exe` (`%USERPROFILE%\.local\bin` or `PATH`). If it's missing, the app installs it with the official installer (log: `claude-install.log`).
+- **Caveman.** Once the CLI is there, the app installs the [caveman](https://github.com/JuliusBrussee/caveman) plugin into Claude Code if it's missing (log: `caveman-install.log`). Claude's runs from the island use its **ultra** level (`CAVEMAN_DEFAULT_MODE=ultra`), so answers are short and use far fewer tokens. If you disable the plugin, it stays disabled.
+- **Sign-in.** It's checked at startup (with a one-word Haiku request, since `auth status` alone can't spot an expired session), every 30 minutes, and when the island opens. When Claude needs a new sign-in, the bar says so and the panel shows **Sign in** (opens the browser), or **Sign-in window** if the background sign-in can't finish.
+
+## Start with Windows & updates
+
+- **Start with Windows**: on every launch the app registers a Task Scheduler logon task (`Notch Code`) for the current user. It starts right at sign-in, with no startup-app delay and normal priority. Toggle it from the tray menu or with `autostart` in `config.json`. Local dev builds don't register.
+- **Updates**: CI builds carry their build number. Shortly after launch, and every 15 minutes, the app checks GitHub Releases for a newer `build-<n>` and offers **Update** / **Later**. Nothing is downloaded until you click **Update**, which is disabled while recording. Before the swap, the new exe is checked: size, SHA-256 from GitHub, and PE header. Then it's swapped in place and the app restarts. Local release builds count as build 0; `tauri dev` builds never check.
 
 ## Building locally
 
@@ -92,7 +110,7 @@ cd app; npm install; cd ..
 powershell -ExecutionPolicy Bypass -File .\app\scripts\build-release.ps1   # -> release\NotchCode.exe
 ```
 
-Build and swap it in for the copy you use — stops the running app, installs to `%LOCALAPPDATA%\Programs\Notch Code\NotchCode.exe` and starts it (`-SkipBuild` reinstalls the last `release\NotchCode.exe`):
+To swap a fresh build in for the copy you use, run `deploy.ps1`. It stops the running app, installs to `%LOCALAPPDATA%\Programs\Notch Code\NotchCode.exe`, and starts it. `-SkipBuild` reinstalls the last `release\NotchCode.exe`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\app\scripts\deploy.ps1
@@ -100,7 +118,7 @@ powershell -ExecutionPolicy Bypass -File .\app\scripts\deploy.ps1
 
 Dev mode: `. .\app\scripts\dev-env.ps1; cd app; npm run tauri dev`.
 
-The animations in this README are plain SVG files in `docs/`, made by `python design/readme_svgs.py` (it takes Hum's styles from `app/src/notch.css`, so rerun it after changing Hum).
+The pictures in this README are animated SVGs in `docs/`, drawn by `python design/readme_svgs.py`. Rerun it after changing the look in `app/src/notch.css`.
 
 ## CI
 
@@ -109,6 +127,10 @@ The animations in this README are plain SVG files in `docs/`, made by `python de
 - push to `main` → new release in Releases (`build-<number>`) with `NotchCode.exe`,
 - other branches and PRs → build only (exe as an Actions artifact),
 - `v*` tag (e.g. `git tag v0.2.0 && git push --tags`) → versioned release with release notes.
+
+## Credits
+
+The island's look (palette, type scale, cards with a glow, pill buttons, chat bar) follows [Coucou](https://github.com/Louis-CFM/coucou) by Louis Raillé, whose code is MIT-licensed. Notch Code uses none of Coucou's name, character, icon or sounds.
 
 ## Legal note
 
