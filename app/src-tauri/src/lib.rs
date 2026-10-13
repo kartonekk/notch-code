@@ -381,6 +381,11 @@ fn set_notch_size(width: f64, height: f64) {
 }
 
 #[tauri::command]
+fn notch_focus(window: WebviewWindow, on: bool) {
+    hover::focus(&window, on);
+}
+
+#[tauri::command]
 fn open_transcript(app: AppHandle) -> Result<(), String> {
     let path = app.state::<AppState>().status.lock().unwrap().transcript_path.clone();
     match path {
@@ -464,6 +469,7 @@ pub fn run() {
             stop_recording,
             pause_recording,
             set_notch_size,
+            notch_focus,
             open_transcript,
             open_transcripts_folder,
             quit_app,
@@ -486,7 +492,7 @@ pub fn run() {
             agent::agent_set_project,
             agent::agent_pick_folder,
             agent::agent_open_folder,
-            agent::agent_forget_folder,
+            agent::agent_forget,
             terminal::open_terminal,
             agent::agent_save_image,
             agent::agent_pick_images,

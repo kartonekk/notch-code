@@ -197,6 +197,8 @@ export const api = {
   retrySetup: () => invoke<void>("retry_setup"),
   setNotchSize: (width: number, height: number) =>
     invoke<void>("set_notch_size", { width, height }),
+  /** the open notch takes the keyboard (`true`) or hands it back to the previous window */
+  notchFocus: (on: boolean) => invoke<void>("notch_focus", { on }),
   openTranscript: () => invoke<void>("open_transcript"),
   openFolder: () => invoke<void>("open_transcripts_folder"),
   quit: () => invoke<void>("quit_app"),
@@ -231,8 +233,8 @@ export const api = {
   /** system folder picker */
   agentPickFolder: (current: string | null) => invoke<string | null>("agent_pick_folder", { current }),
   agentOpenFolder: (path: string) => invoke<void>("agent_open_folder", { path }),
-  /** drop a folder from the recent list */
-  agentForgetFolder: (path: string) => invoke<void>("agent_forget_folder", { path }),
+  /** takes a folder off the recent list */
+  agentForget: (path: string) => invoke<void>("agent_forget", { path }),
   /** a cmd window in that folder */
   openTerminal: (path: string) => invoke<void>("open_terminal", { path }),
   /** saves a pasted image for Claude; returns its path */

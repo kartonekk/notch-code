@@ -888,6 +888,17 @@ pub fn agent_close(app: AppHandle, sid: u64) {
     sync_review(&app);
 }
 
+/// Drops a folder from the recent list (its pill on Home).
+#[tauri::command]
+pub fn agent_forget(app: AppHandle, path: String) {
+    update(&app, |i| {
+        let mut cfg = Config::load();
+        cfg.recent_projects.retain(|p| !p.eq_ignore_ascii_case(&path));
+        cfg.save();
+        i.recent = cfg.recent_projects;
+    });
+}
+
 /// Moves an idle session to another folder (a new conversation starts there).
 #[tauri::command]
 pub fn agent_set_project(app: AppHandle, sid: u64, path: String) -> Result<(), String> {
@@ -1137,17 +1148,6 @@ pub async fn agent_pick_images(app: AppHandle) -> Result<Vec<String>, String> {
         .into_iter()
         .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
         .collect()
-}
-
-/// Drops a folder from the recent list (the Home tiles, the + menu).
-#[tauri::command]
-pub fn agent_forget_folder(app: AppHandle, path: String) {
-    update(&app, |i| {
-        let mut cfg = Config::load();
-        cfg.recent_projects.retain(|p| !p.eq_ignore_ascii_case(&path));
-        cfg.save();
-        i.recent = cfg.recent_projects;
-    });
 }
 
 #[tauri::command]

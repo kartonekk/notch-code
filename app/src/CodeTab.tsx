@@ -378,6 +378,7 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       setRestored((prev) => drop(prev, sid));
       call(api.agentClose(sid));
     },
+    forget: (path: string) => call(api.agentForget(path)),
     moveTo: (sid: number, path: string) => {
       setFeeds((prev) => ({ ...prev, [sid]: [] }));
       call(api.agentSetProject(sid, path));

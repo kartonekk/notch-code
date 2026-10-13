@@ -6,13 +6,18 @@
 //! so we poll the cursor and let the window ignore mouse input whenever the
 //! cursor is outside the notch. Hover is reported to the UI as `notch-hover`,
 //! since DOM mouseenter/leave are unreliable while input is ignored.
+//!
+//! The window never takes the keyboard on its own (`focus: false`), so the open
+//! notch borrows it via `focus` and hands it back to the previous window when
+//! it closes; otherwise typing and shortcuts would need a click first.
 
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::{Emitter, WebviewWindow};
-use windows_sys::Win32::Foundation::POINT;
-use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows_sys::Win32::Foundation::{HWND, POINT};
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetForegroundWindow, IsWindow, SetForegroundWindow};
 
 const POLL: Duration = Duration::from_millis(16);
 
@@ -52,6 +57,28 @@ fn contains(g: &Geometry, p: POINT) -> bool {
     let left = g.x as f64 + (g.width - w) / 2.0;
     let (px, py) = (p.x as f64, p.y as f64);
     px >= left && px < left + w && py >= g.y as f64 && py < g.y as f64 + g.notch_h * g.scale
+}
+
+/// the window that had the keyboard before the open notch took it
+static PREVIOUS: AtomicIsize = AtomicIsize::new(0);
+
+/// Takes the keyboard (`on`) or gives it back to whoever had it before.
+pub fn focus(window: &WebviewWindow, on: bool) {
+    let Ok(own) = window.hwnd() else { return };
+    let own = own.0 as isize;
+    let foreground = unsafe { GetForegroundWindow() } as isize;
+    if on {
+        if foreground != own {
+            PREVIOUS.store(foreground, Ordering::Relaxed);
+            let _ = window.set_focus();
+        }
+    } else {
+        let previous = PREVIOUS.swap(0, Ordering::Relaxed);
+        // only if the notch still has it: a click elsewhere already moved it on
+        if foreground == own && previous != 0 && unsafe { IsWindow(previous as HWND) } != 0 {
+            unsafe { SetForegroundWindow(previous as HWND) };
+        }
+    }
 }
 
 pub fn spawn(window: WebviewWindow) {
