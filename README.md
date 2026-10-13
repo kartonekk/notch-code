@@ -31,7 +31,7 @@ While something is going on, the bar widens to 440 px and a thin line in the sam
 
 ## Open it
 
-Hover the island and it grows into a 640 px panel. Its height follows what it shows. The tab row holds the **overview** (Ctrl+H) and the **transcriber** (Ctrl+M). Next come one tab per Claude session in its own colour (Ctrl+1…9) and **+** for another folder (Ctrl+T). Ctrl+Tab cycles through them. On the right are the 5-hour limit, the voice switch, pin, and quit.
+Hover the island and it grows into a 640 px panel. Its height follows what it shows. The tab row holds the **overview** (Ctrl+H) and the **transcriber** (Ctrl+M). Next come one tab per Claude session in its own colour (Ctrl+1…9) and **+** for another folder (Ctrl+T). Ctrl+Tab cycles through them. On the right are the 5-hour limit, the voice switch, pin, and quit. The limit shows how much of the current session is used (e.g. "37% used"). It's read from Claude Code's own `/usage`, which runs locally and costs no tokens, after every reply and on each sign-in check. Hover it for the week's usage and the reset time.
 
 <img src="docs/overview.svg" width="100%" alt="The open island: a status card on the left with the session at work and its last steps, a grid of pills on the right">
 
@@ -44,14 +44,15 @@ The **overview** has two cards:
 
 <img src="docs/session.svg" width="100%" alt="A Claude session in Auto mode: your message, Claude's answer, one line per step, the step it's on, the chat bar, and the mode and model switches">
 
-- **Pick a folder, type, Enter.** Claude Code runs hidden in that folder. Every step is one plain line ("Editing App.tsx", "Running npm test"); click it for the command and its output. Several folders can work at once, each in its own tab. Messages you write while Claude works are queued and sent when it finishes.
-- **Modes** (Shift+Tab):
+- **Pick a folder, type, Enter.** Claude Code runs hidden in that folder. Every step is one plain line ("Editing App.tsx", "Running npm test"); click it for the command and its output. A "Started with N skills" line lists the skills Claude was given; it shows up again only when they change. Several folders can work at once, each in its own tab. Messages you write while Claude works go to it right away, and it reads them at its next step. If you stop Claude, everything you wrote for that run comes back into the chat bar.
+- **Modes** (Shift+Tab), switchable even while Claude works (it takes effect at once):
   - **Auto**: no permission prompts, every change kept. While it works, the card glows amber.
   - **Edits**: commands need your OK, and changes wait for review.
   - **Plan**: read-only; Claude proposes a plan.
 
   Anything a mode blocks shows up as a permission card with **Allow and continue**.
 - **Model**: Default / Fable / Opus / Sonnet / Haiku, next to the chat bar.
+- **Slash commands**: type `/` in the chat bar for the commands Claude Code offers in that folder: your own and the project's (`.claude/commands`, skills), plugins' (`/caveman:caveman-commit`), and built-ins like `/compact` and `/review`. ↑↓ picks, Enter runs, Tab fills it in for arguments. `/clear` starts a new chat and `/model opus` switches the model.
 - **Images**: paste them, drop them on the panel, or use the image button.
 - **Terminals**: **Terminal** (Ctrl+`) opens a cmd window in the session's folder. Claude's own shell is hidden, so for anything you should see or that keeps running (dev servers, watchers), Claude runs `notch-terminal <command>`. That opens a visible window in the folder, still subject to the permission mode.
 - **Voice**: say "Claude, …" or press the mic in the chat bar. The prompt is sent when you stop talking.
@@ -92,7 +93,7 @@ Folders from the app's former name (`%LOCALAPPDATA%\Transkrypt`, `Documents\Tran
 All of this happens on its own at startup:
 
 - **The CLI.** The app looks for `claude.exe` (`%USERPROFILE%\.local\bin` or `PATH`). If it's missing, the app installs it with the official installer (log: `claude-install.log`).
-- **Caveman.** Once the CLI is there, the app installs the [caveman](https://github.com/JuliusBrussee/caveman) plugin into Claude Code if it's missing (log: `caveman-install.log`). Claude's runs from the island use its **ultra** level (`CAVEMAN_DEFAULT_MODE=ultra`), so answers are short and use far fewer tokens. If you disable the plugin, it stays disabled.
+- **Caveman.** Once the CLI is there, the app installs the [caveman](https://github.com/JuliusBrussee/caveman) plugin into Claude Code if it's missing (log: `caveman-install.log`). Claude's runs from the island use its **ultra** level (`CAVEMAN_DEFAULT_MODE=ultra`), so answers are short and use far fewer tokens. A **Caveman ultra** badge next to the model shows the level Claude actually answers with: caveman's own hooks report it on every run, and the badge disappears if the plugin is off. If you disable the plugin, it stays disabled.
 - **Sign-in.** It's checked at startup (with a one-word Haiku request, since `auth status` alone can't spot an expired session), every 30 minutes, and when the island opens. When Claude needs a new sign-in, the bar says so and the panel shows **Sign in** (opens the browser), or **Sign-in window** if the background sign-in can't finish.
 
 ## Start with Windows & updates

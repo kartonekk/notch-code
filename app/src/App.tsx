@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { api, AppStatus, ClaudeStatus, Limit, on, SessionStatus, UpdateStatus } from "./api";
+import { api, AppStatus, ClaudeStatus, Limit, on, SessionStatus, UpdateStatus, Usage } from "./api";
 import { Agents, AgentNotice, CodeTab, stepTime, useAgents } from "./CodeTab";
 import { Home, homePills } from "./Home";
 import { useVoice, voiceLine } from "./Voice";
@@ -467,7 +467,7 @@ export default function App() {
                   onHold={setTabMenu}
                 />
                 <div className="header-actions">
-                  {claude?.state === "signed_in" && <LimitChip plan={claude.plan} limit={agents.limit} />}
+                  {claude?.state === "signed_in" && <LimitChip plan={claude.plan} limit={agents.limit} usage={agents.usage} />}
                   <IconButton
                     title={
                       voice.wake
@@ -776,30 +776,34 @@ function ProjectMenu({
   );
 }
 
-/** Plan + the 5-hour usage window (as far as Claude has reported it). */
-function LimitChip({ plan, limit }: { plan: string | null; limit: Limit | null }) {
+/** Plan + how much of it is used: Claude Code's `/usage`, else what Claude's replies reported. */
+function LimitChip({ plan, limit, usage }: { plan: string | null; limit: Limit | null; usage: Usage | null }) {
   const current = !!limit && ((limit.resets_at ?? 0) > Date.now() || limit.status === "rejected");
-  const used = current ? limit!.used : null;
-  const tone =
-    limit?.status === "rejected" && current ? "is-error" : current && (limit!.status === "allowed_warning" || (used ?? 0) >= 0.8) ? "is-warn" : "";
+  const rejected = current && limit!.status === "rejected";
+  const used = usage?.session ?? (current ? limit!.used : null);
+  const pct = used != null ? Math.min(100, Math.round(used * 100)) : null;
+  const tone = rejected || (pct ?? 0) >= 100 ? "is-error" : (current && limit!.status === "allowed_warning") || (pct ?? 0) >= 80 ? "is-warn" : "";
   const reset = current && limit!.resets_at ? clock(limit!.resets_at) : null;
-  const left = used != null ? Math.max(0, Math.round((1 - used) * 100)) : null;
-  const title = current
-    ? `Claude${plan ? ` ${capitalize(plan)}` : ""} · 5-hour limit: ${left != null ? `${left}% left (${Math.round(used! * 100)}% used)` : limit!.status === "rejected" ? "reached" : "usage not reported yet"}${reset ? ` · resets at ${reset}` : ""}`
-    : `Claude${plan ? ` ${capitalize(plan)}` : ""} · 5-hour limit: shown after Claude's next reply`;
+  const title = [
+    `Claude${plan ? ` ${capitalize(plan)}` : ""}`,
+    pct != null ? `5-hour session: ${pct}% used` : rejected ? "5-hour limit reached" : "usage shown after Claude's next reply",
+    usage?.week != null ? `week: ${Math.round(usage.week * 100)}% used` : null,
+    reset ? `resets at ${reset}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <span className={`chip limit-chip ${tone}`} title={title}>
-      {current ? (
+      {pct != null ? (
         <>
           5h
-          {left != null && (
-            <span className="limit-meter">
-              <i style={{ width: `${left}%` }} />
-            </span>
-          )}
-          {left != null ? `${left}%` : limit!.status === "rejected" ? "limit reached" : ""}
-          {reset && <span className="limit-reset">↻ {reset}</span>}
+          <span className="limit-meter">
+            <i style={{ width: `${pct}%` }} />
+          </span>
+          {pct}% used
         </>
+      ) : rejected ? (
+        <>limit reached</>
       ) : (
         <>Claude{plan ? ` · ${capitalize(plan)}` : ""}</>
       )}

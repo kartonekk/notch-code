@@ -2,6 +2,7 @@ mod agent;
 mod audio;
 mod autostart;
 mod claude;
+mod commands;
 mod config;
 mod dsp;
 mod hover;
@@ -477,8 +478,11 @@ pub fn run() {
             agent::agent_open,
             agent::agent_close,
             agent::agent_send,
+            agent::agent_inject,
+            agent::agent_set_mode,
             agent::agent_stop,
             agent::agent_new,
+            agent::agent_commands,
             agent::agent_set_project,
             agent::agent_pick_folder,
             agent::agent_open_folder,

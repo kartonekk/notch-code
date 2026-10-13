@@ -741,9 +741,6 @@ kbd,
   color: var(--red-text);
   background: rgba(244, 80, 94, 0.14);
 }
-.limit-reset {
-  color: var(--dim-4);
-}
 
 /* ---------------------------------------------------------------- banners */
 
@@ -1689,6 +1686,11 @@ kbd,
   flex-direction: column;
   gap: 4px;
 }
+/* the skills Claude started with */
+.step-body.skills-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
 .step-detail,
 .step-output {
   margin: 0;
@@ -1976,11 +1978,41 @@ kbd,
 /* composer: the chat bar, and under it what Claude may do and which model */
 .composer {
   flex: none;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 7px;
   margin-top: 8px;
   cursor: text;
+}
+/* "/" menu: commands Claude Code offers in this folder, right above the chat bar */
+.menu.slash-menu {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: auto;
+  max-height: 220px;
+  cursor: default;
+}
+.slash-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+.slash-hint {
+  font-size: 11px;
+  color: var(--dim-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slash-source {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  color: var(--dim-4);
 }
 .chat-bar {
   display: flex;
@@ -2175,6 +2207,19 @@ kbd,
   font-size: 11px;
   font-weight: 500;
   color: #9a9fa8;
+}
+/* caveman level Claude answers with, next to the model */
+.caveman-badge {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9a9fa8;
+  cursor: help;
 }
 
 /* images going with a message */

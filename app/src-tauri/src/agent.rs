@@ -5,6 +5,9 @@
 //! Several sessions can be open at once, each with its own folder and
 //! conversation, and they can all work at the same time.
 //! One process per message; `--resume <session>` continues the conversation.
+//! Its input stays open while Claude works (`--input-format stream-json`), so
+//! what the user writes in the meantime reaches Claude right away instead of
+//! waiting for the run to end.
 //! Nothing ever waits for a permission prompt (`--permission-prompts none`):
 //! what the chosen mode doesn't allow is denied and shown to the user, who can
 //! allow it and continue.
@@ -12,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -24,7 +27,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::config::Config;
-use crate::{claude, paths, review, terminal};
+use crate::{claude, commands, paths, review, terminal};
 
 const MAX_RECENT: usize = 8;
 const MAX_SESSIONS: usize = 9;
@@ -52,6 +55,9 @@ pub struct SessionStatus {
     pub started_at: Option<u64>,
     /// Model of the last run, as Claude reported it.
     pub model: Option<String>,
+    /// Caveman level Claude answers with ("ultra", …), as its hooks last
+    /// reported it; expected from the plugin's settings until the first run.
+    pub caveman: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -62,8 +68,49 @@ pub struct AgentStatus {
     pub recent: Vec<String>,
     /// The 5-hour usage window, as last reported by Claude.
     pub limit: Option<Limit>,
+    /// How much of the plan is used, from Claude Code's `/usage`.
+    pub usage: Option<Usage>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct Usage {
+    /// Current 5-hour session, 0..1.
+    pub session: f64,
+    /// Current week (all models), 0..1.
+    pub week: Option<f64>,
+    /// Unix ms when it was read.
+    pub at: u64,
+}
+
+/// Don't ask `/usage` more often than this.
+const USAGE_EVERY: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Reads the plan usage again in the background (after a reply, on the sign-in
+/// check). Asks made while a read is under way get one more read after it.
+pub fn refresh_usage(app: &AppHandle) {
+    use std::sync::atomic::AtomicBool;
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    static AGAIN: AtomicBool = AtomicBool::new(false);
+    AGAIN.store(true, Ordering::SeqCst);
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        while AGAIN.swap(false, Ordering::SeqCst) {
+            let started = Instant::now();
+            if let Some((session, week)) = claude::find_cli().and_then(|cli| claude::usage(&cli)) {
+                update(&app, |i| i.usage = Some(Usage { session, week, at: now_ms() }));
+            }
+            std::thread::sleep(USAGE_EVERY.saturating_sub(started.elapsed()));
+        }
+        BUSY.store(false, Ordering::SeqCst);
+        // an ask that came in just now, after the last check
+        if !AGAIN.load(Ordering::SeqCst) || BUSY.swap(true, Ordering::SeqCst) {
+            break;
+        }
+    });
+}
 
 /// Claude subscription usage window (from `rate_limit_event`).
 #[derive(Clone, Debug, Serialize)]
@@ -116,6 +163,10 @@ pub struct Denied {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentEvent {
     Start { run: u64, prompt: String },
+    /// The skills Claude was given when it started.
+    Init { run: u64, skills: Vec<String> },
+    /// A message written while Claude worked, passed on to it right away.
+    Followup { run: u64, prompt: String },
     Text { run: u64, text: String },
     /// `at` = unix ms when it started
     Step { run: u64, id: String, icon: &'static str, label: String, detail: Option<String>, at: u64 },
@@ -129,6 +180,14 @@ struct Session {
     claude: Option<String>,
     pid: Option<u32>,
     stopping: bool,
+    /// The running message's process input, open until Claude answers.
+    stdin: Option<ChildStdin>,
+    /// The running message.
+    run: u64,
+    /// Its permission mode (one of MODES); can change while Claude works.
+    mode: String,
+    /// Slash commands Claude listed when it last started here.
+    slash: Vec<String>,
 }
 
 #[derive(Default)]
@@ -136,6 +195,7 @@ struct Inner {
     sessions: Vec<Session>,
     recent: Vec<String>,
     limit: Option<Limit>,
+    usage: Option<Usage>,
     next_id: u64,
 }
 
@@ -161,6 +221,7 @@ fn snapshot(inner: &Inner) -> AgentStatus {
             .collect(),
         recent: inner.recent.clone(),
         limit: inner.limit.clone(),
+        usage: inner.usage.clone(),
     }
 }
 
@@ -206,10 +267,14 @@ fn add_session(inner: &mut Inner, project: String) -> u64 {
     inner.next_id += 1;
     let id = inner.next_id;
     inner.sessions.push(Session {
-        status: SessionStatus { id, project, ..Default::default() },
+        status: SessionStatus { id, project, caveman: claude::caveman_expected(), ..Default::default() },
         claude: None,
         pid: None,
         stopping: false,
+        stdin: None,
+        run: 0,
+        mode: String::new(),
+        slash: Vec::new(),
     });
     id
 }
@@ -345,6 +410,8 @@ struct Outcome {
     result: Option<(bool, String)>,
     denied: Vec<Denied>,
     auth_failed: bool,
+    /// A caveman hook ran (and reported its level).
+    caveman: bool,
 }
 
 fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String>, model: Option<String>) {
@@ -352,7 +419,10 @@ fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String
     let started = Instant::now();
     emit(&app, sid, AgentEvent::Start { run, prompt: prompt.clone() });
 
+    with_session(&app, sid, |s| s.mode = mode.clone());
     let result = execute(&app, sid, run, &prompt, &mode, &allow, model.as_deref());
+    // the user may have switched modes while Claude worked
+    let mode = with_session(&app, sid, |s| s.mode.clone()).unwrap_or(mode);
     let project = with_session(&app, sid, |s| s.status.project.clone());
     if let Some(project) = &project {
         if mode == "reckless" {
@@ -365,9 +435,12 @@ fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String
 
     let stopped = with_session(&app, sid, |s| {
         s.pid = None;
+        s.stdin = None;
         std::mem::take(&mut s.stopping)
     })
     .unwrap_or(true);
+    // Claude answered without caveman's hooks: the plugin is off
+    let no_caveman = matches!(&result, Ok(o) if o.result.is_some() && !o.caveman);
     let (ok, message, denied) = match result {
         _ if stopped => (false, Some("Stopped".to_string()), Vec::new()),
         Err(e) => (false, Some(e), Vec::new()),
@@ -390,6 +463,9 @@ fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String
         s.status.current = None;
         s.status.current_since = None;
         s.status.started_at = None;
+        if no_caveman {
+            s.status.caveman = None;
+        }
     });
     emit(&app, sid, AgentEvent::Done {
         run,
@@ -399,6 +475,8 @@ fn run(app: AppHandle, sid: u64, prompt: String, mode: String, allow: Vec<String
         duration_ms: started.elapsed().as_millis() as u64,
         denied,
     });
+    // the reply used some of the plan
+    refresh_usage(&app);
 }
 
 fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow: &[String], model: Option<&str>) -> Result<Outcome, String> {
@@ -406,12 +484,10 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
     let (project, session) = with_session(app, sid, |s| (s.status.project.clone(), s.claude.clone())).ok_or("That session was closed.")?;
 
     let mut cmd = Command::new(&cli);
-    cmd.args(["-p", "--output-format", "stream-json", "--verbose", "--permission-prompts", "none"]);
-    if mode == "reckless" {
-        cmd.arg("--dangerously-skip-permissions");
-    } else {
-        cmd.args(["--permission-mode", mode]);
-    }
+    cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompts", "none"]);
+    // "allow" only makes "reckless" reachable, so the mode can be switched to it
+    // while Claude works; the mode itself decides
+    cmd.args(["--allow-dangerously-skip-permissions", "--permission-mode", cli_mode(mode)]);
     // snapshot files before Claude edits them, for review / reject
     match review::hook_settings(&project) {
         Ok(settings) => {
@@ -453,12 +529,18 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
     }
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start Claude: {e}"))?;
     let pid = child.id();
-    with_session(app, sid, |s| s.pid = Some(pid));
+    with_session(app, sid, |s| {
+        s.pid = Some(pid);
+        s.run = run;
+    });
     paths::log(format!("agent run {run} (session {sid}) in {project} ({mode})"));
 
-    // the prompt goes through stdin, so no command-line quoting is involved
+    // the prompt goes through stdin, so no command-line quoting is involved;
+    // it stays open for what the user writes while Claude works
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(prompt.as_bytes());
+        if stdin.write_all(user_message(prompt).as_bytes()).is_ok() {
+            with_session(app, sid, |s| s.stdin = Some(stdin));
+        }
     }
     let stderr_tail = Arc::new(Mutex::new(String::new()));
     if let Some(mut stderr) = child.stderr.take() {
@@ -470,11 +552,13 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
         });
     }
 
-    let mut out = Outcome { result: None, denied: Vec::new(), auth_failed: false };
+    let mut out = Outcome { result: None, denied: Vec::new(), auth_failed: false, caveman: false };
     let mut tools: HashMap<String, String> = HashMap::new();
     let mut step_started: HashMap<String, Instant> = HashMap::new();
     // steps that change files: refresh the review list when they finish
     let mut edits: HashSet<String> = HashSet::new();
+    // Claude wrote something in this run
+    let mut said = false;
     let stdout = child.stdout.take().ok_or("no output from Claude")?;
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
@@ -496,6 +580,18 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
                     let m = m.to_string();
                     session_update(app, sid, |s| s.status.model = Some(m));
                 }
+                let skills: Vec<String> = ev
+                    .get("skills")
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default();
+                if !skills.is_empty() {
+                    emit(app, sid, AgentEvent::Init { run, skills });
+                }
+                if let Some(list) = ev.get("slash_commands").and_then(Value::as_array) {
+                    let slash: Vec<String> = list.iter().filter_map(Value::as_str).map(|n| n.trim_start_matches('/').to_string()).collect();
+                    with_session(app, sid, |s| s.slash = slash);
+                }
             }
             Some("assistant") => {
                 if ev.get("error").and_then(Value::as_str) == Some("authentication_failed") {
@@ -507,6 +603,7 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
                         Some("text") => {
                             let text = part.get("text").and_then(Value::as_str).unwrap_or("").trim();
                             if !text.is_empty() && !out.auth_failed {
+                                said = true;
                                 emit(app, sid, AgentEvent::Text { run, text: text.to_string() });
                             }
                         }
@@ -545,9 +642,28 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
                     let label = tools.get(&id).cloned().unwrap_or_default();
                     let duration_ms = step_started.remove(&id).map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
                     emit(app, sid, AgentEvent::StepDone { run, id, ok, output, label, duration_ms });
-                    if edited && mode != "reckless" {
+                    if edited && with_session(app, sid, |s| s.mode != "reckless").unwrap_or(true) {
                         review::refresh(app, &project);
                     }
+                }
+            }
+            // caveman's hooks say which level Claude answers with
+            Some("system") if ev.get("subtype").and_then(Value::as_str) == Some("hook_response") => {
+                if let Some(level) = ev.get("output").and_then(Value::as_str).and_then(claude::caveman_level) {
+                    out.caveman = true;
+                    session_update(app, sid, |s| s.status.caveman = Some(level));
+                }
+            }
+            // Claude confirms a mode switch (or says why it refused one)
+            Some("system") if ev.get("subtype").and_then(Value::as_str) == Some("status") => {
+                if let Some(m) = ev.get("permissionMode").and_then(Value::as_str) {
+                    let m = app_mode(m).to_string();
+                    with_session(app, sid, |s| s.mode = m);
+                }
+            }
+            Some("control_response") => {
+                if let Some(e) = ev.pointer("/response/error").and_then(Value::as_str) {
+                    paths::log(format!("agent run {run}: {e}"));
                 }
             }
             Some("rate_limit_event") => {
@@ -558,6 +674,15 @@ fn execute(app: &AppHandle, sid: u64, run: u64, prompt: &str, mode: &str, allow:
             Some("result") => {
                 let is_error = ev.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 let text = ev.get("result").and_then(Value::as_str).unwrap_or("").to_string();
+                // some slash commands (/context, /cost, …) answer only here
+                if !is_error && !said && !text.trim().is_empty() {
+                    emit(app, sid, AgentEvent::Text { run, text: text.trim().to_string() });
+                }
+                said = false;
+                // Claude answered: closing its input lets it finish (a message it
+                // already got but hasn't taken up yet still gets its turn first);
+                // what the user writes from now on goes out as the next run
+                with_session(app, sid, |s| s.stdin = None);
                 out.result = Some((is_error, text));
                 for d in ev.get("permission_denials").and_then(Value::as_array).into_iter().flatten() {
                     let name = d.get("tool_name").and_then(Value::as_str).unwrap_or("tool");
@@ -702,6 +827,74 @@ fn kill_tree(pid: u32) {
     let _ = cmd.status();
 }
 
+/// One line of `--input-format stream-json`.
+fn user_message(text: &str) -> String {
+    let msg = serde_json::json!({
+        "type": "user",
+        "message": { "role": "user", "content": text },
+        "parent_tool_use_id": null,
+    });
+    format!("{msg}\n")
+}
+
+/// Claude Code's name for one of MODES.
+fn cli_mode(mode: &str) -> &str {
+    if mode == "reckless" { "bypassPermissions" } else { mode }
+}
+
+/// The other way round.
+fn app_mode(mode: &str) -> &str {
+    if mode == "bypassPermissions" { "reckless" } else { mode }
+}
+
+/// Switches the permission mode of every running session right away (the
+/// next message gets it anyway). Claude confirms with a `status` event.
+#[tauri::command]
+pub fn agent_set_mode(app: AppHandle, mode: String) {
+    if !MODES.contains(&mode.as_str()) {
+        return;
+    }
+    static N: AtomicU64 = AtomicU64::new(0);
+    let agent = app.state::<Agent>();
+    let mut inner = agent.inner.lock().unwrap();
+    for s in inner.sessions.iter_mut().filter(|s| s.status.running && !s.stopping && s.mode != mode) {
+        let Some(stdin) = s.stdin.as_mut() else { continue };
+        let msg = serde_json::json!({
+            "type": "control_request",
+            "request_id": format!("mode-{}", N.fetch_add(1, Ordering::Relaxed)),
+            "request": { "subtype": "set_permission_mode", "mode": cli_mode(&mode) },
+        });
+        match stdin.write_all(format!("{msg}\n").as_bytes()).and_then(|_| stdin.flush()) {
+            Ok(()) => paths::log(format!("agent session {}: mode -> {mode}", s.status.id)),
+            Err(e) => paths::log(format!("agent session {}: couldn't switch mode: {e}", s.status.id)),
+        }
+    }
+}
+
+/// Hands a message to Claude while it works; it reads it at its next step.
+/// Errs when Claude isn't taking messages (idle, stopping, or already done);
+/// the UI then sends it as the next message instead.
+#[tauri::command]
+pub fn agent_inject(app: AppHandle, sid: u64, prompt: String) -> Result<(), String> {
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Ok(());
+    }
+    with_session(&app, sid, |s| -> Result<(), String> {
+        let run = s.run;
+        let taking = s.status.running && !s.stopping;
+        let stdin = s.stdin.as_mut().filter(|_| taking).ok_or("Claude isn't taking messages right now.")?;
+        stdin
+            .write_all(user_message(&prompt).as_bytes())
+            .and_then(|_| stdin.flush())
+            .map_err(|e| format!("Couldn't reach Claude: {e}"))?;
+        // still under the lock, so it always comes before the run's "done"
+        emit(&app, sid, AgentEvent::Followup { run, prompt: prompt.clone() });
+        Ok(())
+    })
+    .unwrap_or_else(|| Err("That session was closed.".into()))
+}
+
 /// Stops the running message of a session (and everything Claude started for it).
 #[tauri::command]
 pub fn agent_stop(app: AppHandle, sid: u64) {
@@ -723,6 +916,13 @@ pub fn stop_all(app: &AppHandle) {
     for sid in ids {
         agent_stop(app.clone(), sid);
     }
+}
+
+/// What "/" can run in this session's folder, for the chat bar's menu.
+#[tauri::command]
+pub fn agent_commands(app: AppHandle, sid: u64) -> Result<Vec<commands::SlashCommand>, String> {
+    let (project, slash) = with_session(&app, sid, |s| (s.status.project.clone(), s.slash.clone())).ok_or("That session was closed.")?;
+    Ok(commands::list(&project, &slash))
 }
 
 /// Forgets the conversation; the next message starts a new one.

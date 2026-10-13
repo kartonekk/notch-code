@@ -93,6 +93,8 @@ export interface SessionStatus {
   started_at: number | null;
   /** model of the last run, as Claude reported it */
   model: string | null;
+  /** caveman level Claude answers with ("ultra", …); null = normal answers */
+  caveman: string | null;
 }
 
 export interface AgentStatus {
@@ -101,6 +103,17 @@ export interface AgentStatus {
   recent: string[];
   /** the 5-hour usage window, as last reported by Claude */
   limit: Limit | null;
+  /** how much of the plan is used, from Claude Code's `/usage` */
+  usage: Usage | null;
+}
+
+export interface Usage {
+  /** current 5-hour session, 0..1 */
+  session: number;
+  /** current week (all models), 0..1 */
+  week: number | null;
+  /** unix ms when it was read */
+  at: number;
 }
 
 export interface Limit {
@@ -113,6 +126,17 @@ export interface Limit {
 
 export type StepIcon = "read" | "create" | "edit" | "run" | "search" | "web" | "plan" | "agent" | "other";
 
+/** what "/" can run in a session's folder */
+export interface SlashCommand {
+  /** without the slash; plugin ones as "plugin:name" */
+  name: string;
+  description: string | null;
+  /** what goes after the name, e.g. "[--share|--all]" */
+  hint: string | null;
+  /** "project" | "user" | "built-in" | the plugin's name | "claude" */
+  source: string;
+}
+
 /** something the permission mode didn't allow; `rule` unlocks it */
 export interface Denied {
   label: string;
@@ -122,6 +146,10 @@ export interface Denied {
 /** `sid` = the session it belongs to */
 export type AgentEvent = { sid: number } & (
   | { kind: "start"; run: number; prompt: string }
+  /** the skills Claude was given when it started */
+  | { kind: "init"; run: number; skills: string[] }
+  /** written while Claude worked, passed on to it right away */
+  | { kind: "followup"; run: number; prompt: string }
   | { kind: "text"; run: number; text: string }
   /** `at` = unix ms when the step started */
   | { kind: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null; at: number }
@@ -189,9 +217,15 @@ export const api = {
   /** `model` = alias ("opus", "sonnet", …) or full name; null = Claude Code's default */
   agentSend: (sid: number, prompt: string, mode: AgentMode, allow: string[] = [], model: string | null = null) =>
     invoke<void>("agent_send", { sid, prompt, mode, allow, model }),
+  /** hands a message to Claude while it works; fails when it isn't taking any (then send it next) */
+  agentInject: (sid: number, prompt: string) => invoke<void>("agent_inject", { sid, prompt }),
+  /** switches every session Claude is working in to `mode` right away */
+  agentSetMode: (mode: AgentMode) => invoke<void>("agent_set_mode", { mode }),
   agentStop: (sid: number) => invoke<void>("agent_stop", { sid }),
   /** forget the conversation; the next message starts a new one */
   agentNew: (sid: number) => invoke<void>("agent_new", { sid }),
+  /** slash commands for the chat bar's "/" menu */
+  agentCommands: (sid: number) => invoke<SlashCommand[]>("agent_commands", { sid }),
   /** move an idle session to another folder */
   agentSetProject: (sid: number, path: string) => invoke<void>("agent_set_project", { sid, path }),
   /** system folder picker */
