@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { api, AppStatus, SessionStatus } from "./api";
 import type { View } from "./App";
 import type { Agents } from "./CodeTab";
@@ -29,6 +29,7 @@ export function Home({
   onView,
   onOpen,
   onPick,
+  onHold,
 }: {
   mood: Mood;
   level: number;
@@ -40,11 +41,29 @@ export function Home({
   onView: (v: View) => void;
   onOpen: (path: string) => void;
   onPick: () => void;
+  onHold: (hold: boolean) => void;
 }) {
   const openPaths = new Set(agents.sessions.map((s) => s.project.toLowerCase()));
   const recent = agents.recent.filter((p) => !openPaths.has(p.toLowerCase())).slice(0, Math.max(0, 4 - agents.sessions.length));
+  const homeRef = useRef<HTMLDivElement>(null);
+  /** right-click menu on a folder tile, placed relative to .home */
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  useEffect(() => onHold(menu != null), [menu, onHold]);
+  useEffect(() => () => onHold(false), [onHold]);
+  const openMenu = (e: MouseEvent, path: string) => {
+    e.preventDefault();
+    const box = homeRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const w = 220;
+    const h = 90;
+    setMenu({
+      path,
+      x: Math.max(0, Math.min(e.clientX - box.left, box.width - w)),
+      y: Math.max(0, Math.min(e.clientY - box.top, box.height - h)),
+    });
+  };
   return (
-    <div className="home">
+    <div className="home" ref={homeRef}>
       <section className="card hero">
         <Hum mood={mood} size={150} level={level} look className="hero-hum" />
         <Hero rec={rec} status={status} agents={agents} now={now} onView={onView} onPick={onPick} />
@@ -78,6 +97,7 @@ export function Home({
             title={basename(p)}
             sub="Open a Claude session here"
             onClick={() => onOpen(p)}
+            onContextMenu={(e) => openMenu(e, p)}
           />
         ))}
         {agents.sessions.length < 9 && (
@@ -96,6 +116,43 @@ export function Home({
         )}
         {agents.error && <p className="error-text tiles-error">{agents.error}</p>}
       </section>
+
+      {menu && (
+        <>
+          <div
+            className="menu-scrim"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div className="menu menu-context" role="menu" style={{ left: menu.x, top: menu.y }}>
+            <button
+              className="menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                onOpen(menu.path);
+              }}
+            >
+              <span className="menu-title">Open a Claude session here</span>
+              <span className="menu-sub">{menu.path}</span>
+            </button>
+            <div className="menu-sep" />
+            <button
+              className="menu-item is-danger"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                api.agentForgetFolder(menu.path).catch(() => {});
+              }}
+            >
+              <span className="menu-title">Remove from Home</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -259,6 +316,7 @@ function Tile({
   ghost,
   style,
   onClick,
+  onContextMenu,
 }: {
   hum: ReactNode;
   title: string;
@@ -268,9 +326,16 @@ function Tile({
   ghost?: boolean;
   style?: CSSProperties;
   onClick: () => void;
+  onContextMenu?: (e: MouseEvent) => void;
 }) {
   return (
-    <button className={`tile ${ghost ? "is-ghost" : ""} ${tone ? `is-${tone}` : ""}`} style={style} title={sub} onClick={onClick}>
+    <button
+      className={`tile ${ghost ? "is-ghost" : ""} ${tone ? `is-${tone}` : ""}`}
+      style={style}
+      title={sub}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+    >
       <span className="tile-hum">{hum}</span>
       <span className="tile-title">{title}</span>
       <span className="tile-sub">{sub}</span>

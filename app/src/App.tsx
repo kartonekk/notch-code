@@ -495,6 +495,7 @@ export default function App() {
                     onView={setView}
                     onOpen={openSession}
                     onPick={pickAndOpen}
+                    onHold={setHold}
                   />
                 )}
               </div>

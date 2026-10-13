@@ -2818,10 +2818,14 @@ kbd {
 /* ---------------------------------------------------------------- overview */
 
 .home {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   gap: 10px;
+}
+.menu.menu-context {
+  width: 220px;
 }
 .hero {
   flex: 0 0 250px;

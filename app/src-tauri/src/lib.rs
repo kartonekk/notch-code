@@ -481,6 +481,7 @@ pub fn run() {
             agent::agent_set_project,
             agent::agent_pick_folder,
             agent::agent_open_folder,
+            agent::agent_forget_folder,
             terminal::open_terminal,
             agent::agent_save_image,
             agent::agent_pick_images,

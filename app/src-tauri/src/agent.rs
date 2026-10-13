@@ -781,6 +781,17 @@ pub async fn agent_pick_images(app: AppHandle) -> Result<Vec<String>, String> {
         .collect()
 }
 
+/// Drops a folder from the recent list (the Home tiles, the + menu).
+#[tauri::command]
+pub fn agent_forget_folder(app: AppHandle, path: String) {
+    update(&app, |i| {
+        let mut cfg = Config::load();
+        cfg.recent_projects.retain(|p| !p.eq_ignore_ascii_case(&path));
+        cfg.save();
+        i.recent = cfg.recent_projects;
+    });
+}
+
 #[tauri::command]
 pub fn agent_open_folder(app: AppHandle, path: String) -> Result<(), String> {
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
