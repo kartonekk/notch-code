@@ -1,31 +1,33 @@
-//! Gemini CLI (Google's coding agent), the second agent a session can use.
-//! Installed with npm when missing, signed in with a Google account (the
-//! Gemini subscription) in the browser, and run headless by agent.rs
+//! Gemini through Antigravity CLI (`agy`, Google's coding agent), the second
+//! agent a session can use. Gemini CLI stopped serving personal Google accounts
+//! (AI Pro, Ultra, students) in June 2026; Antigravity CLI took its place.
+//! Installed with Google's install script when missing, signed in with a
+//! Google account in the browser, and run headless by agent.rs
 //! (`--output-format stream-json`), one process per message.
 //!
-//! It runs as `node <gemini script>` rather than through npm's `gemini.cmd`, so
-//! prompts reach it as plain arguments with no batch-file quoting involved.
-//!
-//! Signed in = Gemini CLI has saved Google credentials (~/.gemini/oauth_creds.json)
-//! or a GEMINI_API_KEY is set.
+//! Signed in = Antigravity CLI saved its Google session in Windows Credential
+//! Manager (a generic credential named like `gemini:antigravity`). It has no
+//! sign-in command: its first interactive start signs in, so that runs in a
+//! console window until the credential shows up.
 
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::claude::{hidden, wait_for, AuthState};
 use crate::paths;
 
-const PACKAGE: &str = "@google/gemini-cli";
+const INSTALL_SCRIPT: &str = "https://antigravity.google/cli/install.ps1";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const LOGIN_POLL: Duration = Duration::from_millis(1500);
+const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 const EXPIRED: &str = "Gemini's sign-in has expired. Sign in again in Settings.";
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -46,66 +48,69 @@ pub struct Gemini {
 
 // ---------------------------------------------------------------- finding it
 
-fn on_path(exe: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(exe)).find(|p| p.is_file()))
+/// `agy.exe`: where the install script puts it, or anywhere on PATH.
+fn exe() -> Option<PathBuf> {
+    let installed = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("agy").join("bin").join("agy.exe"));
+    let on_path = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join("agy.exe")).find(|p| p.is_file()));
+    installed.filter(|p| p.is_file()).or(on_path)
 }
 
-fn node() -> Option<PathBuf> {
-    on_path("node.exe").or_else(|| {
-        let pf = std::env::var_os("ProgramFiles").map(PathBuf::from)?;
-        Some(pf.join("nodejs").join("node.exe")).filter(|p| p.is_file())
-    })
-}
-
-/// The installed package's folder: npm's global folder, or next to a `gemini.cmd` on PATH.
-fn package_dir() -> Option<PathBuf> {
-    let rel = Path::new("node_modules").join("@google").join("gemini-cli");
-    let global = std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("npm").join(&rel));
-    let beside = on_path("gemini.cmd").and_then(|c| c.parent().map(|d| d.join(&rel)));
-    global.into_iter().chain(beside).find(|d| d.join("package.json").is_file())
-}
-
-/// The script `gemini` runs, from the package's `bin`.
-fn script() -> Option<PathBuf> {
-    let dir = package_dir()?;
-    let pkg: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).ok()?).ok()?;
-    let bin = match pkg.get("bin")? {
-        Value::String(s) => s.clone(),
-        Value::Object(m) => m.get("gemini").or_else(|| m.values().next())?.as_str()?.to_string(),
-        _ => return None,
-    };
-    Some(dir.join(bin)).filter(|p| p.is_file())
-}
-
-/// A hidden `node <gemini>` ready for arguments; Err says what's missing.
+/// A hidden `agy` ready for arguments; Err says what's missing.
 pub fn command() -> Result<Command, String> {
-    let node = node().ok_or("Gemini needs Node.js — install it from nodejs.org, then sign in to Gemini in Settings.")?;
-    let script = script().ok_or("Gemini CLI isn't installed — install it in Settings.")?;
-    let mut cmd = hidden(node);
-    cmd.arg(script);
-    Ok(cmd)
+    let exe = exe().ok_or("Antigravity CLI isn't installed — install it in Settings.")?;
+    Ok(hidden(exe))
 }
 
-fn home() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".gemini"))
+// ---------------------------------------------------------------- saved sign-in
+
+/// Antigravity's saved Google sessions in Credential Manager: (target, account).
+#[cfg(windows)]
+fn saved_logins() -> Vec<(Vec<u16>, String)> {
+    use windows_sys::Win32::Security::Credentials::{CredEnumerateW, CredFree, CREDENTIALW};
+    let wide = |p: *const u16| -> Vec<u16> {
+        if p.is_null() {
+            return Vec::new();
+        }
+        let mut n = 0;
+        // SAFETY: Credential Manager's strings are NUL-terminated
+        unsafe {
+            while *p.add(n) != 0 {
+                n += 1;
+            }
+            std::slice::from_raw_parts(p, n).to_vec()
+        }
+    };
+    let mut count = 0u32;
+    let mut list: *mut *mut CREDENTIALW = std::ptr::null_mut();
+    // SAFETY: on success `list` holds `count` credentials until CredFree
+    if unsafe { CredEnumerateW(std::ptr::null(), 0, &mut count, &mut list) } == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for i in 0..count as usize {
+        // SAFETY: i < count
+        let cred = unsafe { &**list.add(i) };
+        let target = wide(cred.TargetName as *const u16);
+        if String::from_utf16_lossy(&target).to_ascii_lowercase().contains("antigravity") {
+            out.push((target, String::from_utf16_lossy(&wide(cred.UserName as *const u16))));
+        }
+    }
+    // SAFETY: allocated by CredEnumerateW
+    unsafe { CredFree(list as *const _) };
+    out
 }
 
-fn creds() -> Option<PathBuf> {
-    home().map(|h| h.join("oauth_creds.json"))
-}
-
-fn api_key() -> bool {
-    std::env::var("GEMINI_API_KEY").is_ok_and(|k| !k.trim().is_empty())
+#[cfg(not(windows))]
+fn saved_logins() -> Vec<(Vec<u16>, String)> {
+    Vec::new()
 }
 
 fn account() -> Option<String> {
-    let text = std::fs::read_to_string(home()?.join("google_accounts.json")).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
-    v.get("active").and_then(Value::as_str).map(str::to_string)
+    saved_logins().into_iter().map(|(_, user)| user).find(|u| u.contains('@'))
 }
 
 pub fn signed_in() -> bool {
-    api_key() || creds().is_some_and(|c| c.is_file())
+    !saved_logins().is_empty()
 }
 
 // ---------------------------------------------------------------- state
@@ -132,20 +137,10 @@ fn exclusive(app: &AppHandle, f: impl FnOnce()) {
 }
 
 fn check(app: &AppHandle) {
-    let status = if node().is_none() {
-        GeminiStatus {
-            state: AuthState::NotInstalled,
-            message: Some("Gemini CLI needs Node.js. Install it from nodejs.org, then come back here.".into()),
-            ..Default::default()
-        }
-    } else if script().is_none() {
-        GeminiStatus { state: AuthState::NotInstalled, message: Some("Gemini CLI isn't installed.".into()), ..Default::default() }
+    let status = if exe().is_none() {
+        GeminiStatus { state: AuthState::NotInstalled, message: Some("Antigravity CLI isn't installed.".into()), ..Default::default() }
     } else if signed_in() && !app.state::<Gemini>().auth_failed.load(Ordering::SeqCst) {
-        GeminiStatus {
-            state: AuthState::SignedIn,
-            account: account().or_else(|| api_key().then(|| "API key".to_string())),
-            ..Default::default()
-        }
+        GeminiStatus { state: AuthState::SignedIn, account: account(), ..Default::default() }
     } else if signed_in() {
         GeminiStatus { state: AuthState::SignedOut, message: Some(EXPIRED.into()), ..Default::default() }
     } else {
@@ -155,362 +150,119 @@ fn check(app: &AppHandle) {
 }
 
 fn install(app: &AppHandle) {
-    if node().is_none() {
-        return check(app);
-    }
-    set(app, GeminiStatus { state: AuthState::Installing, message: Some("Installing Gemini CLI…".into()), ..Default::default() });
+    set(app, GeminiStatus { state: AuthState::Installing, message: Some("Installing Antigravity CLI…".into()), ..Default::default() });
     let log_path = paths::data_dir().join("gemini-install.log");
     let result = (|| -> Result<(), String> {
         let log = File::create(&log_path).map_err(|e| e.to_string())?;
         let log_err = log.try_clone().map_err(|e| e.to_string())?;
-        let mut child = hidden("cmd.exe")
-            .args(["/C", "npm", "install", "-g", PACKAGE])
+        let mut child = hidden("powershell.exe")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &format!("irm {INSTALL_SCRIPT} | iex")])
             .stdout(log)
             .stderr(log_err)
             .spawn()
             .map_err(|e| e.to_string())?;
         let status = wait_for(&mut child, INSTALL_TIMEOUT)?;
         if !status.success() {
-            return Err(format!("npm exited with {status}"));
+            return Err(format!("the installer exited with {status}"));
         }
         Ok(())
     })();
     match result {
-        Ok(()) if script().is_some() => {
+        Ok(()) if exe().is_some() => {
             paths::log("gemini: installed");
             check(app);
         }
         other => {
-            let why = other.err().unwrap_or_else(|| "gemini not found after install".into());
+            let why = other.err().unwrap_or_else(|| "agy not found after install".into());
             paths::log(format!("gemini install failed: {why} (see {})", log_path.display()));
             set(app, GeminiStatus {
                 state: AuthState::NotInstalled,
-                message: Some(format!("Couldn't install Gemini CLI: {why}")),
+                message: Some(format!("Couldn't install Antigravity CLI: {why}")),
                 ..Default::default()
             });
         }
     }
 }
 
-/// Makes Gemini CLI sign in with a Google account without asking how first.
-fn prefer_google_login() {
-    let Some(dir) = home() else { return };
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("settings.json");
-    let mut settings: Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-    if !settings.is_object() || settings.pointer("/security/auth/selectedType").is_some() {
-        return;
-    }
-    let obj = settings.as_object_mut().unwrap();
-    let security = obj.entry("security").or_insert_with(|| serde_json::json!({}));
-    if let Some(sec) = security.as_object_mut() {
-        let auth = sec.entry("auth").or_insert_with(|| serde_json::json!({}));
-        if let Some(auth) = auth.as_object_mut() {
-            auth.insert("selectedType".into(), Value::String("oauth-personal".into()));
-        }
-    }
-    if let Ok(text) = serde_json::to_string_pretty(&settings) {
-        let _ = std::fs::write(path, text);
-    }
-}
-
-// ---------------------------------------------------------------- browser sign-in
-//
-// The same Google sign-in Gemini CLI does itself (its `authWithWeb`), run here
-// so no console window is involved: the browser opens Google's page, Google
-// sends the answer to a one-off server on 127.0.0.1, the code is traded for
-// tokens, and they're saved where Gemini CLI reads them (oauth_creds.json,
-// google_accounts.json). The OAuth client is Gemini CLI's own, read from the
-// installed package, so the tokens are exactly the ones it would have made.
-
-const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v2/userinfo";
-const SCOPES: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
-const SUCCESS_PAGE: &str = "https://developers.google.com/gemini-code-assist/auth_success_gemini";
-const FAILURE_PAGE: &str = "https://developers.google.com/gemini-code-assist/auth_failure_gemini";
-
-/// Gemini CLI's OAuth client (id, secret) from its bundle: `var OAUTH_CLIENT_ID = "…";`.
-fn oauth_client() -> Option<(String, String)> {
-    let dir = package_dir()?;
-    let find = |text: &str, name: &str| {
-        let start = text.find(&format!("{name} = \""))? + name.len() + 4;
-        let end = text[start..].find('"')?;
-        Some(text[start..start + end].to_string())
-    };
-    let mut stack = vec![dir.join("bundle"), dir.join("dist")];
-    while let Some(d) = stack.pop() {
-        for entry in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "js") {
-                let Ok(text) = std::fs::read_to_string(&path) else { continue };
-                if let (Some(id), Some(secret)) = (find(&text, "OAUTH_CLIENT_ID"), find(&text, "OAUTH_CLIENT_SECRET")) {
-                    return Some((id, secret));
-                }
-            }
-        }
-    }
-    None
-}
-
-fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-fn url_decode(s: &str) -> String {
-    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => match (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                (Some(h), Some(l)) => {
-                    out.push(h << 4 | l);
-                    i += 2;
-                }
-                _ => out.push(b'%'),
-            },
-            b => out.push(b),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// `a=1&b=2` → value of `key`.
-fn query_get(query: &str, key: &str) -> Option<String> {
-    query.split('&').filter_map(|kv| kv.split_once('=')).find(|(k, _)| *k == key).map(|(_, v)| url_decode(v))
-}
-
-/// An unguessable `state` for the sign-in (the std hasher is seeded from the OS).
-fn random_state() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    let mut out = String::new();
-    for n in 0..4u64 {
-        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u64(n);
-        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
-}
-
-/// Waits for Google's redirect to the local server; returns the query string.
-fn wait_for_redirect(listener: &std::net::TcpListener, deadline: Instant) -> Result<(std::net::TcpStream, String), String> {
-    use std::io::{BufRead, BufReader};
-    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-    loop {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                let _ = stream.set_nonblocking(false);
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-                let mut line = String::new();
-                let _ = BufReader::new(&stream).read_line(&mut line);
-                // "GET /oauth2callback?code=…&state=… HTTP/1.1"
-                let target = line.split_whitespace().nth(1).unwrap_or("");
-                if let Some(query) = target.strip_prefix("/oauth2callback?") {
-                    return Ok((stream, query.to_string()));
-                }
-                // a favicon or a stray request: answer and keep waiting
-                let _ = respond(stream, None);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if Instant::now() > deadline {
-                    return Err("Sign-in timed out. Try again.".into());
-                }
-                std::thread::sleep(Duration::from_millis(150));
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-}
-
-/// Sends the browser on to Google's "you're signed in" (or "it failed") page.
-fn respond(mut stream: std::net::TcpStream, ok: Option<bool>) -> std::io::Result<()> {
-    use std::io::Write;
-    let reply = match ok {
-        Some(ok) => format!(
-            "HTTP/1.1 301 Moved Permanently\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            if ok { SUCCESS_PAGE } else { FAILURE_PAGE }
-        ),
-        None => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
-    };
-    stream.write_all(reply.as_bytes())
-}
-
-/// Saves the tokens the way Gemini CLI's `cacheCredentials` does.
-fn save_tokens(tokens: &Value) -> Result<(), String> {
-    let dir = home().ok_or("No home folder.")?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let mut creds = serde_json::Map::new();
-    for key in ["access_token", "refresh_token", "scope", "token_type", "id_token"] {
-        if let Some(v) = tokens.get(key).filter(|v| !v.is_null()) {
-            creds.insert(key.into(), v.clone());
-        }
-    }
-    if let Some(secs) = tokens.get("expires_in").and_then(Value::as_u64) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        creds.insert("expiry_date".into(), Value::from(now + secs * 1000));
-    }
-    let text = serde_json::to_string_pretty(&Value::Object(creds)).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("oauth_creds.json"), text).map_err(|e| format!("Couldn't save the sign-in: {e}"))
-}
-
-/// The account Gemini CLI shows ("active"), with the previous one kept in "old" like it does.
-fn save_account(email: &str) {
-    let Some(path) = home().map(|h| h.join("google_accounts.json")) else { return };
-    let mut accounts: Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| serde_json::json!({ "active": null, "old": [] }));
-    let previous = accounts.get("active").and_then(Value::as_str).map(str::to_string);
-    let mut old: Vec<Value> = accounts.get("old").and_then(Value::as_array).cloned().unwrap_or_default();
-    old.retain(|v| v.as_str() != Some(email));
-    if let Some(p) = previous.filter(|p| p != email) {
-        if !old.iter().any(|v| v.as_str() == Some(&p)) {
-            old.push(Value::String(p));
-        }
-    }
-    accounts["active"] = Value::String(email.to_string());
-    accounts["old"] = Value::Array(old);
-    if let Ok(text) = serde_json::to_string_pretty(&accounts) {
-        let _ = std::fs::write(path, text);
-    }
-}
-
-fn browser_sign_in(app: &AppHandle) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
-    let (client_id, client_secret) = oauth_client().ok_or("Couldn't read Gemini CLI's sign-in settings — reinstall it from Settings.")?;
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| format!("Couldn't start the sign-in: {e}"))?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect = format!("http://127.0.0.1:{port}/oauth2callback");
-    let state = random_state();
-    let url = format!(
-        "{AUTH_URL}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={state}",
-        url_encode(&client_id),
-        url_encode(&redirect),
-        url_encode(SCOPES),
-    );
-    app.opener().open_url(&url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
-
-    let (stream, query) = wait_for_redirect(&listener, Instant::now() + LOGIN_TIMEOUT)?;
-    if let Some(err) = query_get(&query, "error") {
-        let _ = respond(stream, Some(false));
-        let why = query_get(&query, "error_description").unwrap_or_default();
-        return Err(if err == "access_denied" { "Sign-in was cancelled.".into() } else { format!("Google said: {err} {why}").trim().to_string() });
-    }
-    if query_get(&query, "state").as_deref() != Some(state.as_str()) {
-        let _ = respond(stream, Some(false));
-        return Err("The sign-in answer didn't match. Try again.".into());
-    }
-    let Some(code) = query_get(&query, "code") else {
-        let _ = respond(stream, Some(false));
-        return Err("Google sent no sign-in code. Try again.".into());
-    };
-
-    let body = format!(
-        "code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code",
-        url_encode(&code),
-        url_encode(&client_id),
-        url_encode(&client_secret),
-        url_encode(&redirect),
-    );
-    let http = reqwest::blocking::Client::new();
-    let exchanged = http
-        .post(TOKEN_URL)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .and_then(|r| r.text())
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()));
-    let tokens = match exchanged {
-        Ok(t) if t.get("access_token").is_some() => t,
-        Ok(t) => {
-            let _ = respond(stream, Some(false));
-            let why = t.get("error_description").or_else(|| t.get("error")).and_then(Value::as_str).unwrap_or("no token");
-            return Err(format!("Google refused the sign-in: {why}"));
-        }
-        Err(e) => {
-            let _ = respond(stream, Some(false));
-            return Err(format!("Couldn't finish the sign-in: {e}"));
-        }
-    };
-    if let Err(e) = save_tokens(&tokens) {
-        let _ = respond(stream, Some(false));
-        return Err(e);
-    }
-    let _ = respond(stream, Some(true));
-
-    let token = tokens.get("access_token").and_then(Value::as_str).unwrap_or("");
-    let email = http
-        .get(USERINFO_URL)
-        .header("Authorization", format!("Bearer {token}"))
-        .send()
-        .and_then(|r| r.text())
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .and_then(|v| v.get("email").and_then(Value::as_str).map(str::to_string));
-    if let Some(email) = email {
-        save_account(&email);
-    }
-    Ok(())
-}
-
-/// Signs in to Gemini with Google in the browser (installs Gemini CLI first if needed).
+/// Signs in with Google: Antigravity CLI's first start opens the browser; its
+/// window closes once the session is saved (installs it first if needed).
 fn login(app: &AppHandle) {
-    if node().is_none() {
-        return check(app);
-    }
-    if script().is_none() {
+    if exe().is_none() {
         install(app);
-        if script().is_none() {
-            return;
-        }
+    }
+    let Some(exe) = exe() else { return };
+    // a session that stopped working: drop it so a fresh sign-in is asked for
+    if app.state::<Gemini>().auth_failed.load(Ordering::SeqCst) {
+        forget_logins();
     }
     set(app, GeminiStatus {
         state: AuthState::SigningIn,
         message: Some("Finish signing in with Google in your browser…".into()),
         ..Default::default()
     });
-    prefer_google_login();
-    match browser_sign_in(app) {
-        Ok(()) => {
-            paths::log("gemini: signed in");
-            app.state::<Gemini>().auth_failed.store(false, Ordering::SeqCst);
-            check(app);
-        }
+
+    let mut cmd = Command::new(&exe);
+    if let Some(home) = dirs::home_dir() {
+        cmd.current_dir(home);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NEW_CONSOLE);
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
         Err(e) => {
-            paths::log(format!("gemini sign-in failed: {e}"));
-            set(app, GeminiStatus { state: AuthState::SignedOut, message: Some(e), ..Default::default() });
+            set(app, GeminiStatus { state: AuthState::Error, message: Some(format!("Couldn't start the sign-in: {e}")), ..Default::default() });
+            return;
         }
+    };
+
+    let deadline = Instant::now() + LOGIN_TIMEOUT;
+    let mut done = false;
+    while Instant::now() < deadline {
+        std::thread::sleep(LOGIN_POLL);
+        if signed_in() {
+            done = true;
+            break;
+        }
+        // the user closed the window
+        if let Ok(Some(_)) = child.try_wait() {
+            done = signed_in();
+            break;
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    if done {
+        paths::log("gemini: signed in");
+        app.state::<Gemini>().auth_failed.store(false, Ordering::SeqCst);
+        check(app);
+    } else {
+        paths::log("gemini sign-in didn't finish");
+        set(app, GeminiStatus { state: AuthState::SignedOut, message: Some("Sign-in didn't finish. Try again.".into()), ..Default::default() });
     }
 }
 
+/// Removes Antigravity's saved sessions; false if one couldn't be removed.
+#[cfg(windows)]
+fn forget_logins() -> bool {
+    use windows_sys::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
+    saved_logins().into_iter().all(|(mut target, _)| {
+        target.push(0);
+        // SAFETY: NUL-terminated target name
+        unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) != 0 }
+    })
+}
+
+#[cfg(not(windows))]
+fn forget_logins() -> bool {
+    true
+}
+
 fn logout(app: &AppHandle) {
-    if let Some(c) = creds().filter(|c| c.is_file()) {
-        if let Err(e) = std::fs::remove_file(&c) {
-            return set(app, GeminiStatus {
-                state: AuthState::Error,
-                message: Some(format!("Couldn't sign out: {e}")),
-                ..Default::default()
-            });
-        }
+    if !forget_logins() {
+        return set(app, GeminiStatus { state: AuthState::Error, message: Some("Couldn't sign out.".into()), ..Default::default() });
     }
     app.state::<Gemini>().auth_failed.store(false, Ordering::SeqCst);
     check(app);

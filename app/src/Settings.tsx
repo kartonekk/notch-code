@@ -4,7 +4,7 @@ import type { Agents } from "./CodeTab";
 import type { Voice } from "./Voice";
 import { capitalize, CheckIcon, RetryIcon } from "./ui";
 
-/** Gemini CLI's sign-in, kept current from the backend. */
+/** Gemini's sign-in (Antigravity CLI), kept current from the backend. */
 export function useGemini() {
   const [gemini, setGemini] = useState<GeminiStatus | null>(null);
   useEffect(() => {
@@ -138,7 +138,7 @@ function AccountCard(props: {
       ? (props.detail ?? (provider === "gemini" ? "Google account" : "Claude subscription"))
       : state === "signing_in"
         ? provider === "gemini"
-          ? "Your browser opened Google's sign-in — finish there"
+          ? "A sign-in window opened — finish signing in with Google in the browser"
           : "A sign-in window opened — finish there and in the browser"
         : (props.message ?? (provider === "gemini" ? "Uses your Google account (Gemini subscription)" : "Uses your Claude subscription"));
 
@@ -164,8 +164,8 @@ function AccountCard(props: {
 
       <div className="account-actions">
         {state === "not_installed" && (
-          <button className="btn primary sm" onClick={props.onInstall} disabled={provider === "gemini" && /node/i.test(props.message ?? "")}>
-            Install {provider === "gemini" ? "Gemini CLI" : "Claude Code"}
+          <button className="btn primary sm" onClick={props.onInstall}>
+            Install {provider === "gemini" ? "Antigravity CLI" : "Claude Code"}
           </button>
         )}
         {(state === "signed_out" || state === "error") && (

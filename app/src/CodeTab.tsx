@@ -874,7 +874,7 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
           )}
 
           {gemini ? (
-            <span className="agent-badge is-gemini" title={`Gemini CLI${session.model ? ` — ${session.model}` : ""}. Switch the agent in the folder menu above.`}>
+            <span className="agent-badge is-gemini" title={`Gemini (Antigravity CLI)${session.model ? ` — ${session.model}` : ""}. Switch the agent in the folder menu above.`}>
               Gemini{session.model ? ` · ${session.model.replace(/^gemini-/, "")}` : ""}
             </span>
           ) : (

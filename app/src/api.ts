@@ -61,7 +61,7 @@ export interface ClaudeStatus {
   plan: string | null;
 }
 
-/** Gemini CLI's sign-in (a Google account with the Gemini subscription) */
+/** Gemini's sign-in: Antigravity CLI with a Google account (the Gemini subscription) */
 export interface GeminiStatus {
   state: ClaudeAuthState;
   message: string | null;
@@ -249,7 +249,7 @@ export const api = {
   claudeInstall: () => invoke<void>("claude_install"),
   geminiStatus: () => invoke<GeminiStatus>("gemini_status"),
   geminiRefresh: () => invoke<void>("gemini_refresh"),
-  /** opens Gemini CLI to sign in with Google (installs it first if needed) */
+  /** opens Antigravity CLI to sign in with Google (installs it first if needed) */
   geminiLogin: () => invoke<void>("gemini_login"),
   geminiLogout: () => invoke<void>("gemini_logout"),
   geminiInstall: () => invoke<void>("gemini_install"),

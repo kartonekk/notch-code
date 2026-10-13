@@ -15,9 +15,10 @@
 //! what the chosen mode doesn't allow is denied and shown to the user, who can
 //! allow it and continue.
 //!
-//! A session can use Gemini CLI instead (see gemini.rs). It runs one process
-//! per message (`--resume` continues the conversation) and its stream-json
-//! events become the same steps; Claude and Gemini sessions work side by side.
+//! A session can use Gemini through Antigravity CLI instead (see gemini.rs). It
+//! runs one process per message (`--conversation` continues the conversation)
+//! and its stream-json events become the same steps; Claude and Gemini
+//! sessions work side by side.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -188,7 +189,7 @@ pub enum AgentEvent {
 
 struct Session {
     status: SessionStatus,
-    /// The agent's session id (Claude Code's or Gemini CLI's), for --resume.
+    /// The agent's session id (Claude Code's, or Antigravity's conversation id), for resuming.
     claude: Option<String>,
     /// Claude Code for this session, kept between messages.
     proc: Option<Proc>,
@@ -207,7 +208,7 @@ struct Session {
     slash: Vec<String>,
 }
 
-/// A running Claude Code (or Gemini CLI) process.
+/// A running Claude Code (or Antigravity CLI) process.
 struct Proc {
     serial: u64,
     pid: u32,
@@ -806,12 +807,21 @@ fn read(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout
     exited(app, sid, serial, child, out, &stderr_tail, caveman, "Claude");
 }
 
+/// What a dead process's stderr says went wrong: the last error message, not
+/// the stack trace after it ("at process.processTicksAndRejections …").
+fn last_words(tail: &str) -> String {
+    let lines: Vec<&str> = tail.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let error = lines.iter().rev().find_map(|l| l.rfind("Error: ").map(|i| l[i + 7..].trim()));
+    let plain = || lines.iter().rev().find(|l| !l.starts_with("at ") && !matches!(**l, "}" | "]" | "^")).copied();
+    error.or_else(plain).or(lines.last().copied()).unwrap_or("").to_string()
+}
+
 /// The agent's process is gone; if that was in the middle of a message, that ends it.
 #[allow(clippy::too_many_arguments)]
 fn exited(app: &AppHandle, sid: u64, serial: u64, mut child: Child, out: Outcome, stderr_tail: &Mutex<String>, caveman: bool, who: &str) {
     let status = child.wait().map(|s| s.to_string()).unwrap_or_else(|e| e.to_string());
     let tail = stderr_tail.lock().unwrap().clone();
-    let last = tail.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+    let last = last_words(&tail);
     paths::log(format!("agent session {sid}: {who} exited ({status}) {last}"));
     // gone in the middle of a message: that ends it
     let ended = with_session(app, sid, |s| {
@@ -829,35 +839,43 @@ fn exited(app: &AppHandle, sid: u64, serial: u64, mut child: Child, out: Outcome
     finish(app, sid, run, result, caveman);
 }
 
-// ---------------------------------------------------------------- gemini
+// ---------------------------------------------------------------- gemini (Antigravity CLI)
 
-/// Gemini CLI's approval mode for one of MODES. Nobody can answer a prompt in
+/// Antigravity CLI's flags for one of MODES. Nobody can answer a prompt in
 /// headless mode, so what a mode doesn't allow simply isn't run.
-fn gemini_mode(mode: &str) -> &'static str {
+fn gemini_mode(mode: &str) -> &'static [&'static str] {
     match mode {
-        "reckless" => "yolo",
-        "plan" => "plan",
-        _ => "auto_edit",
+        "reckless" => &["--dangerously-skip-permissions"],
+        "plan" => &["--mode", "plan"],
+        _ => &["--mode", "accept-edits"],
     }
 }
 
-/// (icon, label, detail) for a Gemini CLI tool call, via its Claude Code twin.
+/// (icon, label, detail) for an Antigravity tool call, via its Claude Code twin.
+/// Its parameter names vary (`AbsolutePath`, `TargetFile`, `CommandLine`, …),
+/// so they're matched loosely.
 fn describe_gemini(name: &str, p: &Value) -> (&'static str, String, Option<String>) {
-    let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-    let path = ["absolute_path", "file_path", "path", "dir_path"].iter().map(|k| s(k)).find(|v| !v.is_empty()).unwrap_or_default();
+    let s = |keys: &[&str]| {
+        let obj = p.as_object();
+        keys.iter()
+            .find_map(|k| obj?.iter().find(|(n, v)| v.is_string() && n.replace('_', "").eq_ignore_ascii_case(k)).and_then(|(_, v)| v.as_str()))
+            .unwrap_or("")
+            .to_string()
+    };
+    let path = s(&["absolutepath", "filepath", "targetfile", "path", "dirpath", "directorypath", "searchpath", "searchdirectory"]);
     let (twin, input) = match name {
-        "read_file" => ("Read", serde_json::json!({ "file_path": path })),
-        "write_file" => ("Write", serde_json::json!({ "file_path": path })),
-        "replace" | "edit" | "smart_edit" => ("Edit", serde_json::json!({ "file_path": path })),
-        "run_shell_command" => ("Bash", serde_json::json!({ "command": s("command"), "description": s("description") })),
-        "glob" => ("Glob", serde_json::json!({ "pattern": s("pattern"), "path": path })),
-        "search_file_content" | "grep" | "grep_search" => ("Grep", serde_json::json!({ "pattern": s("pattern"), "path": path })),
-        "google_web_search" => ("WebSearch", serde_json::json!({ "query": s("query") })),
-        "web_fetch" => return ("web", "Reading a web page".into(), Some(clip(&s("prompt"), 400)).filter(|d| !d.is_empty())),
-        "list_directory" => return ("search", format!("Listing {}", file_name(&path)), Some(path).filter(|d| !d.is_empty())),
-        "read_many_files" => return ("read", "Reading several files".into(), None),
-        "write_todos" => ("TodoWrite", Value::Null),
-        "save_memory" => return ("plan", "Saving a note for later".into(), Some(s("fact")).filter(|d| !d.is_empty())),
+        "view_file" | "view_file_outline" | "read_file" => ("Read", serde_json::json!({ "file_path": path })),
+        "write_to_file" | "write_file" => ("Write", serde_json::json!({ "file_path": path })),
+        "replace_file_content" | "multi_replace_file_content" | "replace" | "edit" | "edit_file" => ("Edit", serde_json::json!({ "file_path": path })),
+        "run_command" | "run_shell_command" => {
+            ("Bash", serde_json::json!({ "command": s(&["commandline", "command"]), "description": s(&["description"]) }))
+        }
+        "find_by_name" | "glob" => ("Glob", serde_json::json!({ "pattern": s(&["pattern"]), "path": path })),
+        "grep_search" | "search_file_content" | "grep" => ("Grep", serde_json::json!({ "pattern": s(&["query", "pattern"]), "path": path })),
+        "search_web" | "google_web_search" => ("WebSearch", serde_json::json!({ "query": s(&["query"]) })),
+        "read_url_content" | "web_fetch" => ("WebFetch", serde_json::json!({ "url": s(&["url"]) })),
+        "list_dir" | "list_directory" => return ("search", format!("Listing {}", file_name(&path)), Some(path).filter(|d| !d.is_empty())),
+        "codebase_search" => return ("search", format!("Searching the code for “{}”", clip(&s(&["query"]), 40)), None),
         other => return ("other", other.replace('_', " "), None),
     };
     describe(twin, &input)
@@ -884,22 +902,22 @@ fn tail_of(mut stderr: impl Read + Send + 'static) -> Arc<Mutex<String>> {
     tail
 }
 
-/// Starts Gemini CLI for one message (it continues the session's conversation).
+/// Starts Antigravity CLI for one message (it continues the session's conversation).
 fn start_gemini(app: &AppHandle, sid: u64, prompt: &str, mode: &str, model: Option<&str>) -> Result<(), String> {
     if !gemini::signed_in() {
         return Err("Gemini isn't signed in — sign in from Settings (the gear icon, Ctrl+,).".into());
     }
     let mut cmd = gemini::command()?;
     let (project, session) = with_session(app, sid, |s| (s.status.project.clone(), s.claude.clone())).ok_or("That session was closed.")?;
-    cmd.args(["--output-format", "stream-json", "--approval-mode", gemini_mode(mode)]);
+    cmd.args(["--output-format", "stream-json"]).args(gemini_mode(mode));
     if let Some(id) = &session {
-        cmd.args(["--resume", id]);
+        cmd.args(["--conversation", id]);
     }
     // Claude's model names mean nothing to Gemini
     if let Some(m) = model.filter(|m| m.starts_with("gemini")) {
         cmd.args(["--model", m]);
     }
-    cmd.arg("--prompt").arg(prompt);
+    cmd.arg("--print").arg(prompt);
     cmd.current_dir(&project).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start Gemini: {e}"))?;
     let pid = child.id();
@@ -934,29 +952,39 @@ fn start_gemini(app: &AppHandle, sid: u64, prompt: &str, mode: &str, model: Opti
 
 /// Gemini's errors that mean "sign in again".
 fn is_auth_error(text: &str) -> bool {
-    // not "credentials" alone: Gemini says "Loaded cached credentials." on every start
     let t = text.to_ascii_lowercase();
     ["unauthenticated", "authentication", "invalid_grant", "status 401", "code: 401", "login required", "please log in", "please login", "reauthenticate"]
         .iter()
         .any(|k| t.contains(k))
 }
 
-/// Follows a Gemini CLI process: its events become the message's steps and text.
+/// A tool step Antigravity is running, by its step_index.
+struct GeminiTool {
+    id: String,
+    label: String,
+    started: Instant,
+    edits: bool,
+    done: bool,
+}
+
+/// Follows an Antigravity CLI process: its step updates become the message's steps and text.
 fn read_gemini(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout, stderr_tail: Arc<Mutex<String>>, project: String) {
     let app = &app;
     let mut out = Outcome::default();
-    let mut tools: HashMap<String, String> = HashMap::new();
-    let mut step_started: HashMap<String, Instant> = HashMap::new();
-    let mut edits: HashSet<String> = HashSet::new();
+    let mut tools: HashMap<u64, GeminiTool> = HashMap::new();
+    // replies that arrived in pieces while being written (their DONE repeats nothing new)
+    let mut streamed: HashSet<u64> = HashSet::new();
     // the answer arrives in pieces; it is shown in one go before the next step
     let mut text = String::new();
-    let mut last_error: Option<String> = None;
+    let mut said = false;
     let flush = |text: &mut String, run: u64| {
         let t = text.trim();
-        if !t.is_empty() {
+        let any = !t.is_empty();
+        if any {
             emit(app, sid, AgentEvent::Text { run, text: t.to_string() });
         }
         text.clear();
+        any
     };
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
@@ -965,76 +993,104 @@ fn read_gemini(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: Chil
             if !s.status.running || s.run_proc != serial {
                 return None;
             }
-            if let Some(id) = ev.get("session_id").and_then(Value::as_str) {
+            let id = ["/conversation_id", "/step_update/conversation_id", "/result/conversation_id"].iter().find_map(|p| ev.pointer(p).and_then(Value::as_str));
+            if let Some(id) = id.filter(|id| !id.is_empty()) {
                 s.claude = Some(id.to_string());
             }
             Some(s.run)
         });
         let Some(run) = run.flatten() else { continue };
-        match ev.get("type").and_then(Value::as_str) {
+        match ev.get("event").and_then(Value::as_str) {
             Some("init") => {
-                if let Some(m) = ev.get("model").and_then(Value::as_str) {
+                if let Some(m) = ev.pointer("/init/model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
                     let m = m.to_string();
                     session_update(app, sid, |s| s.status.model = Some(m));
                 }
             }
-            Some("message") if ev.get("role").and_then(Value::as_str) == Some("assistant") => {
-                if let Some(c) = ev.get("content").and_then(Value::as_str) {
-                    text.push_str(c);
-                }
-            }
-            Some("tool_use") => {
-                flush(&mut text, run);
-                let id = ev.get("tool_id").and_then(Value::as_str).unwrap_or("").to_string();
-                let name = ev.get("tool_name").and_then(Value::as_str).unwrap_or("tool");
-                let params = ev.get("parameters").cloned().unwrap_or(Value::Null);
-                let (icon, label, detail) = describe_gemini(name, &params);
-                tools.insert(id.clone(), label.clone());
-                step_started.insert(id.clone(), Instant::now());
-                if icon == "edit" || icon == "create" {
-                    edits.insert(id.clone());
-                }
-                let at = now_ms();
-                session_update(app, sid, |s| {
-                    s.status.current = Some(label.clone());
-                    s.status.current_since = Some(at);
-                });
-                emit(app, sid, AgentEvent::Step { run, id, icon, label, detail, at });
-            }
-            Some("tool_result") => {
-                let id = ev.get("tool_id").and_then(Value::as_str).unwrap_or("").to_string();
-                let ok = ev.get("status").and_then(Value::as_str) != Some("error");
-                let output = ev
-                    .get("output")
-                    .and_then(Value::as_str)
-                    .or_else(|| ev.pointer("/error/message").and_then(Value::as_str))
-                    .map(|o| clip(o, MAX_OUTPUT))
-                    .filter(|o| !o.is_empty());
-                session_update(app, sid, |s| {
-                    s.status.current = Some("Thinking…".into());
-                    s.status.current_since = None;
-                });
-                let edited = edits.remove(&id);
-                let label = tools.get(&id).cloned().unwrap_or_default();
-                let duration_ms = step_started.remove(&id).map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
-                emit(app, sid, AgentEvent::StepDone { run, id, ok, output, label, duration_ms });
-                if edited && with_session(app, sid, |s| s.mode != "reckless").unwrap_or(true) {
-                    review::refresh(app, &project);
-                }
-            }
-            Some("error") => {
-                let msg = ev.get("message").and_then(Value::as_str).unwrap_or("").to_string();
-                paths::log(format!("agent run {run}: gemini: {msg}"));
-                if ev.get("severity").and_then(Value::as_str) != Some("warning") {
-                    out.auth_failed |= is_auth_error(&msg);
-                    last_error = Some(msg);
+            Some("step_update") => {
+                let Some(u) = ev.get("step_update") else { continue };
+                let index = u.get("step_index").and_then(Value::as_u64).unwrap_or(0);
+                let done = u.get("state").and_then(Value::as_str) == Some("DONE");
+                match u.get("step_type").and_then(Value::as_str) {
+                    Some("agent_response") => {
+                        let delta = u.get("text_delta").and_then(Value::as_str).unwrap_or("");
+                        if !done && !delta.is_empty() {
+                            streamed.insert(index);
+                            text.push_str(delta);
+                        } else if done && !streamed.contains(&index) {
+                            text.push_str(delta);
+                        }
+                    }
+                    Some("tool") => {
+                        if !tools.contains_key(&index) {
+                            said |= flush(&mut text, run);
+                            let name = u.get("tool_name").or_else(|| u.pointer("/tool_info/name")).and_then(Value::as_str).unwrap_or("tool");
+                            let params = u.pointer("/tool_info/parameters").cloned().unwrap_or(Value::Null);
+                            let (icon, label, detail) = describe_gemini(name, &params);
+                            let id = format!("agy-{index}");
+                            let at = now_ms();
+                            tools.insert(index, GeminiTool {
+                                id: id.clone(),
+                                label: label.clone(),
+                                started: Instant::now(),
+                                edits: icon == "edit" || icon == "create",
+                                done: false,
+                            });
+                            session_update(app, sid, |s| {
+                                s.status.current = Some(label.clone());
+                                s.status.current_since = Some(at);
+                            });
+                            emit(app, sid, AgentEvent::Step { run, id, icon, label, detail, at });
+                        }
+                        let Some(tool) = tools.get_mut(&index).filter(|t| done && !t.done) else { continue };
+                        tool.done = true;
+                        let error = u.pointer("/tool_info/error/message").and_then(Value::as_str);
+                        let output = u
+                            .pointer("/tool_info/output")
+                            .and_then(Value::as_str)
+                            .filter(|o| !o.is_empty())
+                            .or(error)
+                            .map(|o| clip(o, MAX_OUTPUT))
+                            .filter(|o| !o.is_empty());
+                        session_update(app, sid, |s| {
+                            s.status.current = Some("Thinking…".into());
+                            s.status.current_since = None;
+                        });
+                        emit(app, sid, AgentEvent::StepDone {
+                            run,
+                            id: tool.id.clone(),
+                            ok: error.is_none(),
+                            output,
+                            label: tool.label.clone(),
+                            duration_ms: tool.started.elapsed().as_millis() as u64,
+                        });
+                        if tool.edits && with_session(app, sid, |s| s.mode != "reckless").unwrap_or(true) {
+                            review::refresh(app, &project);
+                        }
+                    }
+                    _ => {}
                 }
             }
             Some("result") => {
-                flush(&mut text, run);
-                let ok = ev.get("status").and_then(Value::as_str) == Some("success");
-                let err = ev.pointer("/error/message").and_then(Value::as_str).map(str::to_string).or(last_error.take()).unwrap_or_default();
+                let r = ev.get("result").cloned().unwrap_or(Value::Null);
+                let status = r.get("status").and_then(Value::as_str).unwrap_or("");
+                let response = r.get("response").and_then(Value::as_str).unwrap_or("");
+                // nothing came in pieces: the whole answer is here
+                if !said && text.trim().is_empty() {
+                    text.push_str(response);
+                }
+                said |= flush(&mut text, run);
+                let answered = said || !response.trim().is_empty();
+                // a resumed conversation can end "INTERRUPTED" right after a complete reply
+                let ok = status == "SUCCESS" || (status == "INTERRUPTED" && answered);
+                let err = r
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("Gemini stopped ({})", status.to_ascii_lowercase()));
                 if !ok {
+                    paths::log(format!("agent run {run}: gemini: {err}"));
                     out.auth_failed |= is_auth_error(&err);
                 }
                 out.result = Some((!ok, if ok { String::new() } else { err }));
@@ -1044,15 +1100,10 @@ fn read_gemini(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: Chil
             _ => {}
         }
     }
-    // gone without a result (an old Gemini CLI, a crash): its last words explain it
-    if out.result.is_none() {
-        if let Some(e) = last_error {
-            stderr_tail.lock().unwrap().push_str(&format!("\n{e}"));
-        }
-        if is_auth_error(&stderr_tail.lock().unwrap()) {
-            out.auth_failed = true;
-            out.result = Some((true, String::new()));
-        }
+    // gone without a result (signed out, a crash): its last words explain it
+    if out.result.is_none() && is_auth_error(&stderr_tail.lock().unwrap()) {
+        out.auth_failed = true;
+        out.result = Some((true, String::new()));
     }
     exited(app, sid, serial, child, out, &stderr_tail, false, "Gemini");
 }

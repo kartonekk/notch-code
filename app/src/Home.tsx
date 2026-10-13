@@ -248,7 +248,7 @@ function Hero({
         <span className="dot" style={{ "--h": hue(busy.project) } as CSSProperties} />
         <b className="name">{basename(busy.project)}</b>
         <span className="tool">
-          {busy.provider === "gemini" ? "Gemini CLI" : "Claude Code"}
+          {busy.provider === "gemini" ? "Antigravity CLI" : "Claude Code"}
           {agents.mode === "reckless" ? " · Auto" : ""}
         </span>
         <span className="count">
