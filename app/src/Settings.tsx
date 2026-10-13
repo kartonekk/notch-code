@@ -137,7 +137,9 @@ function AccountCard(props: {
     state === "signed_in"
       ? (props.detail ?? (provider === "gemini" ? "Google account" : "Claude subscription"))
       : state === "signing_in"
-        ? "A sign-in window opened — finish there and in the browser"
+        ? provider === "gemini"
+          ? "Your browser opened Google's sign-in — finish there"
+          : "A sign-in window opened — finish there and in the browser"
         : (props.message ?? (provider === "gemini" ? "Uses your Google account (Gemini subscription)" : "Uses your Claude subscription"));
 
   return (
