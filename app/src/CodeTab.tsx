@@ -66,7 +66,7 @@ function applyEvent(prev: FeedItem[], e: AgentEvent): FeedItem[] {
       next = [...prev, { type: "followup", run: e.run, text: e.prompt }];
       break;
     case "init": {
-      // every message starts Claude anew; say it once, and again only when the skills change
+      // Claude lists them at every message; say it once, and again only when the skills change
       const last = [...prev].reverse().find((i) => i.type === "skills");
       if (last?.type === "skills" && last.skills.join("\n") === e.skills.join("\n")) return prev;
       next = [...prev, { type: "skills", run: e.run, skills: e.skills }];
