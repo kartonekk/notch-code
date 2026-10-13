@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="design/logo.svg" width="96" alt="Notch Code logo">
+
 # Notch Code
 
 **Claude Code and live meeting transcription in a small black island at the top of your screen.**
@@ -44,7 +46,7 @@ The **overview** has two cards:
 
 <img src="docs/session.svg" width="100%" alt="A Claude session in Auto mode: your message, Claude's answer, one line per step, the step it's on, the chat bar, and the mode and model switches">
 
-- **Pick a folder, type, Enter.** Claude Code runs hidden in that folder. Every step is one plain line ("Editing App.tsx", "Running npm test"); click it for the command and its output. A "Started with N skills" line lists the skills Claude was given; it shows up again only when they change. Several folders can work at once, each in its own tab. Messages you write while Claude works go to it right away, and it reads them at its next step. If you stop Claude, everything you wrote for that run comes back into the chat bar.
+- **Pick a folder, type, Enter.** Claude Code runs hidden in that folder. Every step is one plain line ("Editing App.tsx", "Running npm test"); click it for the command and its output. A "Started with N skills" line lists the skills Claude was given; it shows up again only when they change. Several folders can work at once, each in its own tab. Messages you write while Claude works go to it right away, and it reads them at its next step. A `/command` written then waits and runs once Claude finishes. If you stop Claude, everything you wrote for that run comes back into the chat bar.
 - **Modes** (Shift+Tab), switchable even while Claude works (it takes effect at once):
   - **Auto**: no permission prompts, every change kept. While it works, the card glows amber.
   - **Edits**: commands need your OK, and changes wait for review.

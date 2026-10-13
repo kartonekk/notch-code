@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Notch Code app icon: the black island glued to the top of a screen, its status dot lit, a glow underneath.
+       Regenerate the app icons: render this to a 1024 px PNG, then `npx tauri icon <png>` in app/. -->
+  <defs>
+    <linearGradient id="screen" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2b3042"/>
+      <stop offset="0.55" stop-color="#191b25"/>
+      <stop offset="1" stop-color="#0e0f14"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="512" cy="310" r="420" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 310) scale(1 0.62) translate(-512 -310)">
+      <stop offset="0" stop-color="#d97757" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#d97757" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#d97757" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="dot" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#ffb08f"/>
+      <stop offset="1" stop-color="#e0704a"/>
+    </radialGradient>
+    <clipPath id="tile"><rect x="64" y="64" width="896" height="896" rx="200"/></clipPath>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#screen)"/>
+  <rect x="68" y="68" width="888" height="888" rx="196" fill="none" stroke="#fff" stroke-opacity="0.1" stroke-width="8"/>
+  <g clip-path="url(#tile)">
+    <rect x="64" y="64" width="896" height="896" fill="url(#glow)"/>
+    <!-- the island -->
+    <path d="M262 64 H762 V216 A96 96 0 0 1 666 312 H358 A96 96 0 0 1 262 216 Z" fill="#000"/>
+    <path d="M300 310 H724" stroke="#d97757" stroke-width="10" stroke-linecap="round" stroke-opacity="0.9"/>
+    <!-- status dot -->
+    <circle cx="356" cy="188" r="60" fill="#d97757" opacity="0.28"/>
+    <circle cx="356" cy="188" r="38" fill="url(#dot)"/>
+    <!-- voice bars -->
+    <rect x="580" y="160" width="26" height="56" rx="13" fill="#f5f6f8"/>
+    <rect x="626" y="132" width="26" height="112" rx="13" fill="#f5f6f8"/>
+    <rect x="672" y="168" width="26" height="40" rx="13" fill="#f5f6f8"/>
+  </g>
+  <!-- prompt chevron + cursor: code -->
+  <path d="M330 540 L466 640 L330 740" fill="none" stroke="#f5f6f8" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="524" y="712" width="180" height="56" rx="28" fill="#f5f6f8" fill-opacity="0.55"/>
+</svg>

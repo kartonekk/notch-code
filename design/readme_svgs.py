@@ -72,14 +72,16 @@ def uid(prefix):
 # --------------------------------------------------------------------------- building blocks
 
 
-def desktop(w, h):
+def desktop(w, h, windows=True):
     g = uid("desk")
     _defs.append(
         f'<linearGradient id="{g}" x1="0" y1="0" x2="0.4" y2="1">'
         '<stop offset="0" stop-color="#1c1f2b"/><stop offset="0.6" stop-color="#14151c"/><stop offset="1" stop-color="#0d0e12"/></linearGradient>'
     )
-    return (
-        f'<rect width="{w}" height="{h}" rx="14" fill="url(#{g})"/>'
+    out = f'<rect width="{w}" height="{h}" rx="14" fill="url(#{g})"/>'
+    if not windows:
+        return out
+    return out + (
         f'<rect x="{w * 0.06:.0f}" y="{h * 0.62:.0f}" width="{w * 0.42:.0f}" height="{h * 0.5:.0f}" rx="10" fill="#ffffff" opacity="0.035"/>'
         f'<rect x="{w * 0.56:.0f}" y="{h * 0.55:.0f}" width="{w * 0.36:.0f}" height="{h * 0.6:.0f}" rx="10" fill="#ffffff" opacity="0.025"/>'
     )
@@ -140,7 +142,11 @@ def mini(x, y, hue, size=14, running=False):
     )
     out = f'<rect x="{x}" y="{y - h / 2}" width="{size}" height="{h}" rx="{size * 0.34}" fill="url(#{g})"/>'
     if running:
-        out += f'<rect class="spin" x="{x - 3}" y="{y - h / 2 - 3}" width="{size + 6}" height="{h + 6}" rx="{size * 0.42}" fill="none" stroke="{hsl(hue, 85, 72)}" stroke-width="1.5" stroke-dasharray="10 40"/>'
+        cx, r = x + size / 2, size / 2 + 3
+        out += (
+            f'<circle cx="{cx}" cy="{y}" r="{r}" fill="none" stroke="{hsl(hue, 80, 70, 0.25)}" stroke-width="1.5"/>'
+            f'<path class="spin" d="M{cx - r} {y} A{r} {r} 0 0 1 {cx} {y - r}" fill="none" stroke="{hsl(hue, 85, 72)}" stroke-width="1.5" stroke-linecap="round"/>'
+        )
     return out
 
 
@@ -235,12 +241,12 @@ def header(L, W, tabs, right=True):
             rx -= 14
             out += icon(name, rx, y + 4, 14, DIM2)
             rx -= 10
-        cw = 104
+        cw = 124
         rx -= cw
         out += f'<rect x="{rx}" y="{y + 1}" width="{cw}" height="20" rx="10" fill="#fff" fill-opacity="0.06"/>'
         out += text(rx + 9, y + 15, "5h", 11, DIM)
-        out += f'<rect x="{rx + 25}" y="{y + 9.5}" width="34" height="3" rx="1.5" fill="#fff" fill-opacity="0.14"/><rect x="{rx + 25}" y="{y + 9.5}" width="27" height="3" rx="1.5" fill="{GREEN}"/>'
-        out += text(rx + 65, y + 15, "82%", 11, DIM)
+        out += f'<rect x="{rx + 25}" y="{y + 9.5}" width="34" height="3" rx="1.5" fill="#fff" fill-opacity="0.14"/><rect x="{rx + 25}" y="{y + 9.5}" width="{34 * 0.37:.1f}" height="3" rx="1.5" fill="{GREEN}"/>'
+        out += text(rx + 65, y + 15, "37% used", 11, DIM)
     return out
 
 
@@ -263,8 +269,9 @@ def notch():
     # recording a meeting
     w = 440
     bars = "".join(
-        f'<rect x="{cx + w / 2 - 40 + i * 4.5}" y="9" width="2.5" height="14" rx="1.2" fill="{RED}">'
-        f'<animateTransform attributeName="transform" type="scale" values="1 {a};1 1;1 {a}" dur="{0.5 + i * 0.13:.2f}s" repeatCount="indefinite" additive="sum"/></rect>'
+        f'<rect x="{cx + w / 2 - 40 + i * 4.5}" y="{16 - 7 * a:.1f}" width="2.5" height="{14 * a:.1f}" rx="1.2" fill="{RED}">'
+        f'<animate attributeName="height" values="{14 * a:.1f};14;{14 * a:.1f}" dur="{0.5 + i * 0.13:.2f}s" repeatCount="indefinite"/>'
+        f'<animate attributeName="y" values="{16 - 7 * a:.1f};9;{16 - 7 * a:.1f}" dur="{0.5 + i * 0.13:.2f}s" repeatCount="indefinite"/></rect>'
         for i, a in enumerate((0.3, 0.6, 0.4, 0.8, 0.35))
     )
     states.append(
@@ -274,7 +281,7 @@ def notch():
         + text(cx - w / 2 + 34, 20.5, "12:04", 12.5, RED_TEXT, 600)
         + text(cx - w / 2 + 76, 20.5, "Others:", 12.5, DIM, 600)
         + text(cx - w / 2 + 124, 20.5, "so we ship it on Friday, right?", 12.5, "#e8e9ec")
-        + f'<g transform="translate(0 0)">{bars}</g>'
+        + bars
     )
     # Claude at work
     states.append(
@@ -294,16 +301,14 @@ def notch():
     )
 
     s = 1 / n  # each state's share of the loop
-    f = 0.35 / dur  # cross-fade
-    body = desktop(W, H)
+    f = 0.25 / dur  # fade out, then fade in
+    body = desktop(W, H, windows=False)
     for i, state in enumerate(states):
         a, b = i * s, (i + 1) * s
         if i == 0:
-            keys, vals = [0, b, b + f, 1 - f, 1], [1, 1, 0, 0, 1]
-        elif i == n - 1:
-            keys, vals = [0, a, a + f, 1 - f, 1], [0, 0, 1, 1, 0]
+            keys, vals = [0, f, b - f, b, 1], [0, 1, 1, 0, 0]
         else:
-            keys, vals = [0, a, a + f, b, b + f, 1], [0, 0, 1, 1, 0, 0]
+            keys, vals = [0, a, a + f, b - f, b, 1], [0, 0, 1, 1, 0, 0]
         body += (
             f'<g opacity="{vals[0]}"><animate attributeName="opacity" dur="{dur}s" repeatCount="indefinite" '
             f'keyTimes="{";".join(f"{k:.4f}" for k in keys)}" values="{";".join(map(str, vals))}"/>{state}</g>'
@@ -366,10 +371,10 @@ def overview():
         if kind == "session":
             stroke = hsl(hue, 75, 62, 0.85) if busy else hsl(hue, 55, 45, 0.55)
             body += f'<rect x="{qx}" y="{qy}" width="{colw}" height="28" rx="14" fill="{hsl(hue, 40, 11)}" stroke="{stroke}"/>'
-            body += mini(qx + 7, qy + 14, hue, 14, busy) + text(qx + colw / 2 + 8, qy + 18, label, 11, hsl(hue, 80, 76), 600, "middle")
+            body += mini(qx + 8, qy + 14, hue, 14, busy) + text(qx + colw / 2 + 8, qy + 18, label, 11, hsl(hue, 80, 76), 600, "middle")
         elif kind == "ghost":
             body += f'<rect x="{qx}" y="{qy}" width="{colw}" height="28" rx="14" fill="none" stroke="#fff" stroke-opacity="0.12" stroke-dasharray="3 3"/>'
-            body += mini(qx + 7, qy + 14, hue, 14) + text(qx + colw / 2 + 8, qy + 18, label, 11, DIM3, 600, "middle")
+            body += mini(qx + 8, qy + 14, hue, 14) + text(qx + colw / 2 + 8, qy + 18, label, 11, DIM3, 600, "middle")
         elif kind == "plus":
             body += f'<rect x="{qx}" y="{qy}" width="{colw}" height="28" rx="14" fill="none" stroke="#fff" stroke-opacity="0.12" stroke-dasharray="3 3"/>'
             body += f'<circle cx="{qx + 15}" cy="{qy + 14}" r="9" fill="#fff" fill-opacity="0.07"/>' + icon("plus", qx + 9.5, qy + 8.5, 11, DIM2)
@@ -383,8 +388,8 @@ def overview():
 
 def session():
     """A Claude session in Auto mode: the conversation, the step it's on, the chat bar."""
-    W, H, cx = 900, 500, 450
-    w, h = 640, 450
+    W, H, cx = 900, 476, 450
+    w, h = 640, 426
     L = cx - w / 2
     body = desktop(W, H) + island(cx, w, h, 22)
     body += header(L, w, [("icon", "home", False, 0), ("icon", "mic", False, 0), ("sep", "", False, 0), ("session", "notch-code", True, 205), ("session", "api", False, 32), ("icon", "plus", False, 0)])
@@ -425,14 +430,15 @@ def session():
     body += spinner(x + 30, sy + 15, AMBER)
     body += f'<rect x="{x + 42}" y="{sy + 8}" width="40" height="15" rx="7.5" fill="{AMBER}" fill-opacity="0.16"/>' + text(x + 62, sy + 19, "AUTO", 9.5, AMBER_TEXT, 700, "middle")
     body += shimmer_text(x + 92, sy + 19.5, "Running npm run build", 12, 500)
-    body += text(x + cw - 92, sy + 19.5, "00:58", 11, DIM2, anchor="end")
-    sb, _ = btn(x + cw - 84, sy + 4, "Stop  Esc", size=11.5, w=66)
-    body += sb
+    body += text(x + cw - 100, sy + 19.5, "00:58", 11, DIM2, anchor="end")
+    sb, _ = btn(x + cw - 92, sy + 4, "", size=11, w=72)
+    body += sb + text(x + cw - 80, sy + 19.5, "Stop", 11.5, "#f1f2f4", 500)
+    body += f'<rect x="{x + cw - 50}" y="{sy + 9}" width="24" height="15" rx="4" fill="#fff" fill-opacity="0.1"/>' + text(x + cw - 38, sy + 19.5, "Esc", 9.5, DIM, 600, "middle")
 
     # chat bar
     cy = sy + 38
     body += f'<rect x="{x + 14}" y="{cy}" width="{cw - 28}" height="42" rx="14" fill="#fff" fill-opacity="0.07"/>'
-    body += text(x + 28, cy + 25.5, "Add more details — sent when Claude finishes, nothing is interrupted", 13, DIM3)
+    body += text(x + 28, cy + 25.5, "Add more details — Claude reads it at its next step", 13, DIM3)
     body += icon("image", x + cw - 82, cy + 14, 13, DIM2)
     body += f'<circle cx="{x + cw - 35}" cy="{cy + 21}" r="14" fill="{INK}"/>' + icon("send", x + cw - 42, cy + 14, 14, "#0b0c0e")
 
@@ -443,6 +449,8 @@ def session():
     body += icon("edit", x + 79, fy + 4.5, 11, DIM3) + text(x + 94, fy + 14, "Edits", 11, DIM3)
     body += icon("plan", x + 133, fy + 4.5, 11, DIM3) + text(x + 148, fy + 14, "Plan", 11, DIM3)
     body += text(x + 186, fy + 14, "No brakes · changes kept automatically", 11, DIM4)
+    body += f'<rect x="{x + cw - 190}" y="{fy + 2}" width="96" height="16" rx="8" fill="#fff" fill-opacity="0.06"/>'
+    body += text(x + cw - 142, fy + 13.5, "CAVEMAN ULTRA", 8.5, DIM, 600, "middle", 'letter-spacing="0.6"')
     body += f'<rect x="{x + cw - 86}" y="{fy}" width="70" height="20" rx="10" fill="#fff" fill-opacity="0.06"/>'
     body += f'<circle cx="{x + cw - 75}" cy="{fy + 10}" r="3" fill="{CLAUDE}"/>' + text(x + cw - 67, fy + 14, "Opus", 11, "#9a9fa8", 500)
     body += icon("chevron", x + cw - 34, fy + 4.5, 11, "#7b8089")
@@ -451,8 +459,8 @@ def session():
 
 def transcribe():
     """Live transcription: what's recorded, levels, timer, Pause / End, the transcript below."""
-    W, H, cx = 900, 470, 450
-    w, h = 640, 420
+    W, H, cx = 900, 340, 450
+    w, h = 640, 296
     L = cx - w / 2
     body = desktop(W, H) + island(cx, w, h, 22)
     body += header(L, w, [("icon", "home", False, 0), ("rec", "12:04", True, 0), ("sep", "", False, 0), ("session", "notch-code", False, 205), ("icon", "plus", False, 0)])
@@ -488,7 +496,7 @@ def transcribe():
         ("12:01", "others", "So we ship it on Friday, right?"),
         ("12:04", "me", "Friday it is."),
     ]
-    ty = hy + 70
+    ty = hy + 68
     dur = 9
     for i, (ts, who, s) in enumerate(lines):
         t = 0.08 + i * 0.12
@@ -505,7 +513,7 @@ def transcribe():
                 f'<g opacity="0"><animate attributeName="opacity" dur="{dur}s" repeatCount="indefinite" '
                 f'keyTimes="0;{t:.3f};{t + 0.03:.3f};0.94;1" values="0;0;1;1;0"/>{row}</g>'
             )
-        ty += 26
+        ty += 24
     return svg(W, H, body)
 
 

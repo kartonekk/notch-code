@@ -173,6 +173,16 @@ function matchCommands(all: SlashCommand[], query: string): SlashCommand[] {
     .map((x) => x.c);
 }
 
+/** "/review 12": Claude Code only runs it at the start of a message, never as a follow-up mid-run */
+const isCommand = (text: string) => /^\/\S/.test(text.trim());
+
+/** What goes out next from a queue: a command on its own, else the texts up to the next command (as one message). */
+function nextBatch(queued: string[]): [string[], string[]] {
+  const end = isCommand(queued[0] ?? "") ? 1 : queued.findIndex(isCommand);
+  const n = end < 0 ? queued.length : end;
+  return [queued.slice(0, n), queued.slice(n)];
+}
+
 function cachedLimit(): Limit | null {
   try {
     const l = JSON.parse(store.get("agent.limit") ?? "null") as Limit | null;
@@ -248,15 +258,17 @@ export function useAgents(expanded: boolean, viewing: number | null) {
         if (notice && (!expanded || viewing !== e.sid)) setUnseen((prev) => ({ ...prev, [e.sid]: notice.tone }));
         const handed = followups.current[e.sid] ?? [];
         followups.current = { ...followups.current, [e.sid]: [] };
-        // what couldn't reach Claude in time goes out now, as one message
+        // what couldn't reach Claude in time goes out now, as one message; a command
+        // goes alone, and whatever follows it waits for that run to finish
         const queued = queues[e.sid] ?? [];
-        if (queued.length > 0) setQueues((prev) => ({ ...prev, [e.sid]: [] }));
+        const [next, rest] = e.stopped ? [[], []] : nextBatch(queued);
+        if (queued.length > 0) setQueues((prev) => ({ ...prev, [e.sid]: rest }));
         if (e.stopped) {
           // stopped: everything written for this run goes back into the chat bar
           const back = [...handed, ...queued];
           if (back.length > 0) setRestored((prev) => ({ ...prev, [e.sid]: [...(prev[e.sid] ?? []), ...back] }));
-        } else if (queued.length > 0) {
-          call(api.agentSend(e.sid, queued.join("\n\n"), mode, [], model || null));
+        } else if (next.length > 0) {
+          call(api.agentSend(e.sid, next.join("\n\n"), mode, [], model || null));
         }
       }),
     ];
@@ -313,13 +325,17 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       setModelState(m);
       store.set("agent.model", m);
     },
-    /** sends now; while Claude works it gets it at its next step (or right after, if it's already answering) */
+    /** sends now; while Claude works it gets it at its next step (or right after, if it's already answering; a /command always waits) */
     send: (sid: number, prompt: string, allow: string[] = []) => {
       const text = prompt.trim();
       if (!text) return;
       const busy = (id: number) => !!live.current.status?.sessions.find((s) => s.id === id)?.running;
       if (!busy(sid)) {
         call(api.agentSend(sid, text, mode, allow, model || null));
+        return;
+      }
+      if (isCommand(text)) {
+        setQueues((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), text] }));
         return;
       }
       api.agentInject(sid, text).catch(() => {
@@ -641,7 +657,7 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
                   </button>
                 </div>
               ))}
-              <span className="queue-note">Claude was already answering: sent as soon as it finishes</span>
+              <span className="queue-note">Sent as soon as Claude finishes (commands always wait for that)</span>
             </div>
           )}
         </div>
