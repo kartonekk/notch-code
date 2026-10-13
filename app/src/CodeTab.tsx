@@ -3,6 +3,7 @@ import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, SessionStatus, SlashCommand, StepIcon } from "./api";
 import { Markdown } from "./Markdown";
+import { parseUsageReport, UsageCard } from "./Usage";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
 import {
   AlertIcon,
@@ -1211,12 +1212,13 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
   );
 }
 
-/** Claude's text, as Markdown. */
+/** Claude's text, as Markdown; `/usage`'s report as a card. */
 function RichText({ text }: { text: string }) {
+  const usage = useMemo(() => parseUsageReport(text), [text]);
   return (
-    <div className="answer">
+    <div className={`answer ${usage ? "is-usage" : ""}`}>
       <CopyButton text={text} />
-      <Markdown text={text} />
+      {usage ? <UsageCard report={usage} /> : <Markdown text={text} />}
     </div>
   );
 }
