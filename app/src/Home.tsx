@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { api, AppStatus, SessionStatus } from "./api";
 import type { View } from "./App";
 import type { Agents, FeedItem } from "./CodeTab";
@@ -17,6 +17,7 @@ export function homePills(agents: Agents) {
  * The overview, one look at everything. On the left, a card says what's going
  * on right now and offers the next step; on the right, one pill per thing you
  * can jump into (transcriber, each Claude session, recent folders).
+ * Right-click a folder's pill for what else you can do with it.
  */
 export function Home({
   rec,

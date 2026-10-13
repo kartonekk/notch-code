@@ -888,6 +888,17 @@ pub fn agent_close(app: AppHandle, sid: u64) {
     sync_review(&app);
 }
 
+/// Drops a folder from the recent list (its pill on Home).
+#[tauri::command]
+pub fn agent_forget(app: AppHandle, path: String) {
+    update(&app, |i| {
+        let mut cfg = Config::load();
+        cfg.recent_projects.retain(|p| !p.eq_ignore_ascii_case(&path));
+        cfg.save();
+        i.recent = cfg.recent_projects;
+    });
+}
+
 /// Moves an idle session to another folder (a new conversation starts there).
 #[tauri::command]
 pub fn agent_set_project(app: AppHandle, sid: u64, path: String) -> Result<(), String> {
