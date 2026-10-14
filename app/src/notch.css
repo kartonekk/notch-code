@@ -3326,3 +3326,383 @@ button.limit-chip.is-gemini.open {
   transform: translateX(14px);
   background: #fff;
 }
+
+/* ---------------------------------------------------------------- mascot */
+
+/* a little screen tile with the chosen character; its glowing parts take the status colour */
+.mascot {
+  --accent: var(--claude);
+  flex: none;
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(70% 55% at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
+    linear-gradient(170deg, #2b3042, #191b25 55%, #0e0f14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px var(--hairline);
+}
+.mascot.is-rec,
+.mascot.is-error {
+  --accent: var(--red);
+}
+.mascot.is-paused,
+.mascot.is-warn,
+.mascot.is-auto {
+  --accent: var(--amber);
+}
+.mascot.is-work {
+  --accent: var(--sky);
+}
+.mascot.is-voice {
+  --accent: var(--cyan);
+}
+.mascot.is-setup {
+  --accent: var(--indigo);
+}
+.mascot.is-ok {
+  --accent: var(--green);
+}
+.mascot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mascot .acc {
+  fill: var(--accent);
+  transition: fill 0.4s;
+}
+.mascot .acc-s {
+  stroke: var(--accent);
+  transition: stroke 0.4s;
+}
+.mascot .blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mascot-blink 5s infinite;
+}
+.mascot .sway {
+  transform-box: view-box;
+  transform-origin: 120px 0;
+  animation: mascot-sway 4.5s ease-in-out infinite;
+}
+.mascot .sway.slow {
+  animation-duration: 7s;
+}
+.mascot .float {
+  animation: mascot-float 3.4s ease-in-out infinite;
+}
+.mascot .bob {
+  animation: mascot-bob 1.2s ease-in-out infinite;
+}
+.mascot .bar {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mascot-bar 0.9s ease-in-out infinite;
+}
+.mascot .bar.top {
+  transform-origin: 50% 0;
+  animation-name: mascot-tentacle;
+  animation-duration: 2.2s;
+}
+.mascot .d1 {
+  animation-delay: -0.15s;
+}
+.mascot .d2 {
+  animation-delay: -0.3s;
+}
+.mascot .d3 {
+  animation-delay: -0.45s;
+}
+.mascot .d4 {
+  animation-delay: -0.6s;
+}
+.mascot .d5 {
+  animation-delay: -0.75s;
+}
+.mascot .wave {
+  animation: mascot-wave 1.8s ease-out infinite;
+}
+.mascot .glow {
+  animation: mascot-glow 2s ease-in-out infinite;
+}
+.mascot .kick {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  animation: mascot-kick 1.6s ease-in-out infinite;
+}
+.mascot .kick.alt {
+  animation-delay: -0.8s;
+}
+.mascot .ear-l {
+  transform-box: fill-box;
+  transform-origin: 80% 100%;
+  animation: mascot-twitch-l 3.5s ease-in-out infinite;
+}
+.mascot .ear-r {
+  transform-box: fill-box;
+  transform-origin: 20% 100%;
+  animation: mascot-twitch-r 3.5s ease-in-out 0.4s infinite;
+}
+.mascot .tail {
+  transform-box: fill-box;
+  transform-origin: 0 100%;
+  animation: mascot-tail 2.6s ease-in-out infinite;
+}
+.mascot .wavearm {
+  transform-box: fill-box;
+  transform-origin: 10% 90%;
+  animation: mascot-wavearm 1.4s ease-in-out infinite;
+}
+.mascot .cursor {
+  animation: mascot-cursor 1s steps(1) infinite;
+}
+.mascot .type {
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+  animation: mascot-type 3s ease-out infinite;
+}
+.mascot .type.t2 {
+  animation-delay: 0.5s;
+}
+.mascot .type.t3 {
+  animation-delay: 1s;
+}
+.mascot .bubble {
+  animation: mascot-bubble 3s ease-in infinite;
+}
+.mascot .bubble.b2 {
+  animation-delay: 1s;
+}
+.mascot .bubble.b3 {
+  animation-delay: 2s;
+}
+@keyframes mascot-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes mascot-sway {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+@keyframes mascot-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes mascot-bar {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes mascot-tentacle {
+  0%,
+  100% {
+    transform: scaleY(0.75);
+  }
+  50% {
+    transform: scaleY(1.05);
+  }
+}
+@keyframes mascot-wave {
+  0% {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+@keyframes mascot-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes mascot-kick {
+  0%,
+  100% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes mascot-twitch-l {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  85% {
+    transform: rotate(-7deg);
+  }
+  90% {
+    transform: rotate(2deg);
+  }
+}
+@keyframes mascot-twitch-r {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  85% {
+    transform: rotate(7deg);
+  }
+  90% {
+    transform: rotate(-2deg);
+  }
+}
+@keyframes mascot-tail {
+  0%,
+  100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes mascot-wavearm {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  50% {
+    transform: rotate(-22deg);
+  }
+}
+@keyframes mascot-cursor {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes mascot-type {
+  0% {
+    transform: scaleX(0);
+  }
+  35%,
+  85% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+@keyframes mascot-bubble {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(-46px);
+    opacity: 0;
+  }
+}
+
+/* in the overview's status card: right of the text, above the buttons */
+.hero-mascot {
+  position: absolute;
+  right: 14px;
+  bottom: 48px;
+  width: 56px;
+  height: 51px;
+}
+.hero.has-mascot .hero-body {
+  padding-right: 64px;
+}
+
+/* settings: a row of tiles; only the chosen and the hovered one move */
+.mascot-row {
+  cursor: default;
+}
+.mascot-row:hover:not(:disabled) {
+  background: none;
+}
+.mascot-picker {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.mascot-pick {
+  padding: 2px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  transition:
+    border-color 150ms,
+    transform 150ms var(--spring);
+}
+.mascot-pick:hover {
+  transform: translateY(-2px);
+}
+.mascot-pick.on {
+  border-color: var(--claude);
+}
+.mascot-pick .mascot {
+  width: 30px;
+  height: 28px;
+  border-radius: 7px;
+}
+.mascot-pick:not(.on):not(:hover) .mascot * {
+  animation-play-state: paused;
+}
+/* "None": an empty tile, crossed out */
+.mascot-none {
+  position: relative;
+  background: var(--fill);
+}
+.mascot-none i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--dim-3);
+  transform: translate(-50%, -50%) rotate(-40deg);
+}

@@ -57,7 +57,7 @@ const PILL_ROW = 32;
 const TAB_MENU_H = 340;
 const ANIM_MS = 300;
 /** the settings view, header included */
-const SETTINGS_H = 392;
+const SETTINGS_H = 444;
 /** the now-playing card under Home's status card (+ the gap above it) */
 const MEDIA_H = 74;
 /** "Later" on the Claude sign-in reminder hides it for this long */

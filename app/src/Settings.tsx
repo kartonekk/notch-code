@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ClaudeAuthState, ClaudeStatus, GeminiStatus, on, Provider, PROVIDER_NAME, Settings as SettingsData } from "./api";
 import type { Agents } from "./CodeTab";
+import { MASCOTS, MascotPicker, useMascot } from "./Mascot";
 import type { Voice } from "./Voice";
 import { capitalize, CheckIcon, RetryIcon } from "./ui";
 
@@ -21,10 +22,12 @@ export function useGemini() {
  * Settings, built to be checked at a glance and changed in one click:
  *   accounts   Claude and Gemini side by side: signed in or not, one button for
  *              the next step, and which one new sessions use
- *   general    start with Windows, voice prompts
+ *   general    start with Windows, voice prompts, the mascot (or none)
  */
 export function Settings({ claude, gemini, agents, voice }: { claude: ClaudeStatus | null; gemini: GeminiStatus | null; agents: Agents; voice: Voice }) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [mascot, setMascot] = useMascot();
+  const skin = MASCOTS.find((m) => m.id === mascot);
   useEffect(() => {
     api.settingsGet().then(setSettings).catch(() => {});
     // the cards should tell the truth when they're opened
@@ -92,6 +95,13 @@ export function Settings({ claude, gemini, agents, voice }: { claude: ClaudeStat
           on={voice.wake}
           onChange={(on) => voice.setWake(on)}
         />
+        <div className="setting-row mascot-row">
+          <span className="setting-text">
+            <b>Mascot</b>
+            <span className="muted">{skin && mascot !== "none" ? `${skin.name}, ${skin.what}` : "None"}</span>
+          </span>
+          <MascotPicker value={mascot} onChange={setMascot} />
+        </div>
       </section>
     </div>
   );

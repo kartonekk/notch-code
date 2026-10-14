@@ -3,6 +3,7 @@ import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { api, AppStatus, Media, Provider, PROVIDER_NAME, SessionStatus } from "./api";
 import type { View } from "./App";
 import type { Agents, FeedItem } from "./CodeTab";
+import { Mascot, useMascot } from "./Mascot";
 import { NowPlaying } from "./Media";
 import { SPEAKER_LABEL, Transcription } from "./TranscribeTab";
 import { AgentTag, basename, formatDuration, hue, MicIcon, Mini, PauseIcon, PlayIcon, PlusIcon, Status, StepGlyph } from "./ui";
@@ -199,6 +200,7 @@ function Hero({
   const busy = agents.running[0];
   const busyFeed = busy ? agents.feed(busy.id) : [];
   const steps = useMemo(() => recentSteps(busyFeed, 2), [busyFeed]);
+  const [mascot] = useMascot();
   let glow: Status;
   let who: ReactNode;
   let body: ReactNode;
@@ -350,7 +352,8 @@ function Hero({
   }
 
   return (
-    <section className={`card wash glow-${glow} hero`}>
+    <section className={`card wash glow-${glow} hero ${mascot !== "none" ? "has-mascot" : ""}`}>
+      <Mascot id={mascot} status={glow} className="hero-mascot" />
       <div className="who">{who}</div>
       <div className="hero-body">{body}</div>
       {actions && <div className="actions">{actions}</div>}

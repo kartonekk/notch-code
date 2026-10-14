@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notch Code — mascot concepts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --font: system-ui, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+    --ink: #f5f6f8;
+    --text: #c8ccd2;
+    --dim: #9398a1;
+    --dim-3: #6b7079;
+    --card: #141518;
+    --line: rgba(255, 255, 255, 0.07);
+    --claude: #d97757;
+    --accent: #d97757;
+  }
+  * { box-sizing: border-box; }
+  html { background: #0b0c0e; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+      #0b0c0e;
+    min-height: 100vh;
+    transition: background 0.4s;
+  }
+  header {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .island {
+    width: 288px;
+    height: 34px;
+    background: #000;
+    border-radius: 0 0 18px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06), 0 10px 40px rgba(0,0,0,0.6);
+    position: relative;
+  }
+  .island::after {
+    content: "";
+    position: absolute;
+    left: 24px; right: 24px; bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0.85;
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .island .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: breathe 2s ease-in-out infinite;
+  }
+  .island span { font-size: 12px; color: var(--dim); font-family: var(--mono); }
+  h1 { color: var(--ink); font-size: 34px; margin: 42px 0 6px; letter-spacing: -0.02em; }
+  header p { margin: 0; color: var(--dim); max-width: 640px; line-height: 1.5; }
+
+  .states {
+    margin: 26px 0 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+  .states button {
+    font: 13px var(--font);
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 14px 7px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .states button:hover { background: #1d1f23; }
+  .states button[aria-pressed="true"] { border-color: var(--c); color: var(--ink); background: color-mix(in srgb, var(--c) 14%, #141518); }
+  .states button i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .hint { font-size: 12px; color: var(--dim-3); margin-top: 6px; }
+
+  main {
+    max-width: 1240px;
+    margin: 28px auto 60px;
+    padding: 0 28px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    cursor: zoom-in;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.14); }
+  .stage {
+    position: relative;
+    aspect-ratio: 240 / 220;
+    background:
+      radial-gradient(70% 55% at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+      linear-gradient(170deg, #2b3042, #191b25 55%, #0e0f14);
+    border-bottom: 1px solid var(--line);
+  }
+  .stage::before {
+    /* top edge of the screen */
+    content: "";
+    position: absolute; inset: 0 0 auto 0; height: 1px;
+    background: rgba(255,255,255,0.12);
+  }
+  .stage svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .num {
+    position: absolute; top: 10px; left: 12px;
+    font: 11px var(--mono); color: rgba(255,255,255,0.35);
+  }
+  .info { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .info h2 { margin: 0; color: var(--ink); font-size: 18px; display: flex; align-items: baseline; gap: 8px; }
+  .info h2 small { font-size: 12px; font-weight: 400; color: var(--dim); }
+  .info p { margin: 0; font-size: 13.5px; line-height: 1.5; }
+  .meta { margin-top: auto; padding-top: 6px; display: flex; align-items: center; gap: 10px; }
+  .swatches { display: flex; gap: 4px; }
+  .swatches b { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.12); }
+  .minis { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .minis svg { display: block; border-radius: 6px; background: #1b1d25; }
+
+  /* zoom overlay */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(5,6,8,0.82);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+    z-index: 10;
+    cursor: zoom-out;
+  }
+  .overlay.open { display: flex; }
+  .overlay .big {
+    width: min(78vmin, 640px);
+    aspect-ratio: 240 / 220;
+    border-radius: 28px;
+    overflow: hidden;
+    background:
+      radial-gradient(70% 55% at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
+      linear-gradient(170deg, #2b3042, #191b25 55%, #0e0f14);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    border: 1px solid var(--line);
+  }
+  .overlay .big svg { width: 100%; height: 100%; display: block; }
+  .overlay .cap { color: var(--ink); font-size: 20px; font-weight: 600; }
+  footer { text-align: center; color: var(--dim-3); font-size: 12px; padding-bottom: 40px; }
+
+  /* ---------- shared mascot animation ---------- */
+  .acc { fill: var(--accent); transition: fill 0.4s; }
+  .acc-s { stroke: var(--accent); transition: stroke 0.4s; }
+  .blink { transform-box: fill-box; transform-origin: center; animation: blink 5s infinite; }
+  .blink.late { animation-delay: 1.3s; }
+  .sway { transform-box: view-box; transform-origin: 120px 0px; animation: sway 4.5s ease-in-out infinite; }
+  .sway.slow { animation-duration: 7s; }
+  .float { animation: float 3.4s ease-in-out infinite; }
+  .bar { transform-box: fill-box; transform-origin: center; animation: bar 0.9s ease-in-out infinite; }
+  .bar.top { transform-origin: 50% 0%; animation-name: tentacle; animation-duration: 2.2s; }
+  .d1 { animation-delay: -0.15s; } .d2 { animation-delay: -0.3s; } .d3 { animation-delay: -0.45s; }
+  .d4 { animation-delay: -0.6s; } .d5 { animation-delay: -0.75s; }
+  .wave { animation: wave 1.8s ease-out infinite; }
+  .glow { animation: glow 2s ease-in-out infinite; }
+  .kick { transform-box: fill-box; transform-origin: 50% 0%; animation: kick 1.6s ease-in-out infinite; }
+  .kick.alt { animation-delay: -0.8s; }
+  .ear-l { transform-box: fill-box; transform-origin: 80% 100%; animation: twitchL 3.5s ease-in-out infinite; }
+  .ear-r { transform-box: fill-box; transform-origin: 20% 100%; animation: twitchR 3.5s ease-in-out infinite 0.4s; }
+  .tail { transform-box: fill-box; transform-origin: 0% 100%; animation: tail 2.6s ease-in-out infinite; }
+  .wavearm { transform-box: fill-box; transform-origin: 10% 90%; animation: wavearm 1.4s ease-in-out infinite; }
+  .cursor { animation: cursor 1s steps(1) infinite; }
+  .type { transform-box: fill-box; transform-origin: 0% 50%; animation: type 3s ease-out infinite; }
+  .type.t2 { animation-delay: 0.5s; } .type.t3 { animation-delay: 1s; }
+  .bubble { animation: bubble 3s ease-in infinite; }
+  .bubble.b2 { animation-delay: 1s; } .bubble.b3 { animation-delay: 2s; }
+  .bob { animation: bob 1.2s ease-in-out infinite; }
+
+  @keyframes breathe { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+  @keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.08); } }
+  @keyframes sway { 0%,100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+  @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+  @keyframes bar { 0%,100% { transform: scaleY(0.45); } 50% { transform: scaleY(1); } }
+  @keyframes tentacle { 0%,100% { transform: scaleY(0.75); } 50% { transform: scaleY(1.05); } }
+  @keyframes wave { 0% { opacity: 0; transform: translateX(-4px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateX(6px); } }
+  @keyframes glow { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+  @keyframes kick { 0%,100% { transform: rotate(-12deg); } 50% { transform: rotate(14deg); } }
+  @keyframes twitchL { 0%, 80%, 100% { transform: rotate(0); } 85% { transform: rotate(-7deg); } 90% { transform: rotate(2deg); } }
+  @keyframes twitchR { 0%, 80%, 100% { transform: rotate(0); } 85% { transform: rotate(7deg); } 90% { transform: rotate(-2deg); } }
+  @keyframes tail { 0%,100% { transform: rotate(-5deg); } 50% { transform: rotate(6deg); } }
+  @keyframes wavearm { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-22deg); } }
+  @keyframes cursor { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+  @keyframes type { 0% { transform: scaleX(0); } 35%, 85% { transform: scaleX(1); } 100% { transform: scaleX(1); opacity: 0; } }
+  @keyframes bubble { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 0.7; } 100% { transform: translateY(-46px); opacity: 0; } }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="island"><span class="dot"></span><span id="state-label">claude · idle</span></div>
+  <h1>Notch Code — mascot concepts</h1>
+  <p>Ten directions for a character that lives in the black island at the top of the screen. Every mascot's glowing bits follow the island's status colour — switch it below. Click a card to zoom.</p>
+  <div class="states" id="states"></div>
+  <div class="hint">Small previews (48 / 24 px) next to the swatches show how each reads at icon size.</div>
+</header>
+
+<main id="grid">
+
+  <!-- 1. Notchy -->
+  <article class="card" data-name="Notchy">
+    <div class="stage"><span class="num">01</span>
+      <svg viewBox="0 0 240 220">
+        <g class="sway">
+          <g class="kick"><path d="M100 88 V124" stroke="#000" stroke-width="7" stroke-linecap="round"/><ellipse cx="96" cy="128" rx="10" ry="6" class="acc"/></g>
+          <g class="kick alt"><path d="M140 88 V124" stroke="#000" stroke-width="7" stroke-linecap="round"/><ellipse cx="144" cy="128" rx="10" ry="6" class="acc"/></g>
+          <path d="M40 0 H200 V56 A36 36 0 0 1 164 92 H76 A36 36 0 0 1 40 56 Z" fill="#000" stroke="rgba(255,255,255,0.08)"/>
+          <path d="M72 97 H168" class="acc-s glow" stroke-width="3" stroke-linecap="round"/>
+          <g class="blink"><rect x="86" y="26" width="17" height="26" rx="8.5" fill="#f5f6f8"/><rect x="137" y="26" width="17" height="26" rx="8.5" fill="#f5f6f8"/></g>
+          <circle cx="74" cy="60" r="7" class="acc" opacity="0.45"/>
+          <circle cx="166" cy="60" r="7" class="acc" opacity="0.45"/>
+          <rect x="107" y="60" width="6" height="16" rx="3" fill="#f5f6f8" class="bar"/>
+          <rect x="117" y="56" width="6" height="24" rx="3" fill="#f5f6f8" class="bar d2"/>
+          <rect x="127" y="60" width="6" height="16" rx="3" fill="#f5f6f8" class="bar d4"/>
+        </g>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Notchy <small>the island itself</small></h2>
+      <p>The notch comes alive: pill eyes, the voice bars become its mouth, little legs kicking below the screen edge. Most on-brand — the mascot <em>is</em> the product.</p>
+      <div class="meta"><div class="swatches"><b style="background:#000"></b><b style="background:#f5f6f8"></b><b style="background:var(--accent)"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 2. Bitwing -->
+  <article class="card" data-name="Bitwing">
+    <div class="stage"><span class="num">02</span>
+      <svg viewBox="0 0 240 220">
+        <rect x="70" y="0" width="100" height="14" rx="0" fill="#000"/>
+        <g class="sway">
+          <g transform="rotate(180 120 110)">
+            <path d="M111 186 V222 M129 186 V222" stroke="#2e2a38" stroke-width="5" stroke-linecap="round"/>
+            <path d="M105 222 q6 6 12 0 M123 222 q6 6 12 0" stroke="#2e2a38" stroke-width="4" fill="none" stroke-linecap="round"/>
+            <ellipse cx="120" cy="140" rx="52" ry="56" fill="#24212c"/>
+            <path d="M120 112 V194 M120 194 Q96 186 74 160 M120 194 Q144 186 166 160" stroke="#17151d" stroke-width="3" fill="none"/>
+            <path d="M86 74 L76 28 L110 60 Z" fill="#2e2a38"/>
+            <path d="M154 74 L164 28 L130 60 Z" fill="#2e2a38"/>
+            <path d="M89 66 L83 40 L103 58 Z" fill="#d97757" opacity="0.55"/>
+            <path d="M151 66 L157 40 L137 58 Z" fill="#d97757" opacity="0.55"/>
+            <circle cx="120" cy="92" r="38" fill="#2e2a38"/>
+            <g class="blink"><circle cx="105" cy="88" r="10" class="acc"/><circle cx="135" cy="88" r="10" class="acc"/></g>
+            <circle cx="108" cy="85" r="3.2" fill="#fff"/><circle cx="138" cy="85" r="3.2" fill="#fff"/>
+            <path d="M110 106 Q115 111 120 106 Q125 111 130 106" stroke="#f5f6f8" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <path d="M112.5 107 L114.5 114 L117 107.5 Z M127.5 107 L125.5 114 L123 107.5 Z" fill="#fff"/>
+            <circle cx="96" cy="102" r="5" fill="#d97757" opacity="0.4"/><circle cx="144" cy="102" r="5" fill="#d97757" opacity="0.4"/>
+          </g>
+          <path d="M66 176 q-9 10 0 20" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <path d="M56 170 q-14 16 0 32" class="acc-s wave d3" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.4s"/>
+          <path d="M174 176 q9 10 0 20" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.2s"/>
+          <path d="M184 170 q14 16 0 32" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.6s"/>
+        </g>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Bitwing <small>the bat</small></h2>
+      <p>Hangs upside-down from the top of your screen, just like the app. Bats hear everything — the sound arcs feed into its ears. Status colour lights its eyes.</p>
+      <div class="meta"><div class="swatches"><b style="background:#2e2a38"></b><b style="background:#24212c"></b><b style="background:#d97757"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 3. Hoot -->
+  <article class="card" data-name="Hoot">
+    <div class="stage"><span class="num">03</span>
+      <svg viewBox="0 0 240 220">
+        <g class="bob">
+          <path d="M72 72 L62 34 L96 58 Z" fill="#262833"/>
+          <path d="M168 72 L178 34 L144 58 Z" fill="#262833"/>
+          <path d="M60 122 Q48 168 84 194 Q70 152 74 118 Z" fill="#1c1e27"/>
+          <path d="M180 122 Q192 168 156 194 Q170 152 166 118 Z" fill="#1c1e27"/>
+          <ellipse cx="120" cy="130" rx="60" ry="70" fill="#262833"/>
+          <ellipse cx="120" cy="158" rx="36" ry="38" fill="#343746"/>
+          <g stroke="#555a70" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M100 146 l6 5 -6 5"/><path d="M116 146 l6 5 -6 5"/><path d="M132 146 l6 5 -6 5"/>
+            <path d="M108 164 l6 5 -6 5"/><path d="M124 164 l6 5 -6 5"/>
+            <path d="M116 182 l6 5 -6 5"/>
+          </g>
+          <circle cx="98" cy="106" r="25" fill="#f5f6f8"/>
+          <circle cx="142" cy="106" r="25" fill="#f5f6f8"/>
+          <g class="blink"><circle cx="100" cy="107" r="12" class="acc"/><circle cx="140" cy="107" r="12" class="acc"/>
+            <circle cx="100" cy="107" r="6" fill="#0b0c0e"/><circle cx="140" cy="107" r="6" fill="#0b0c0e"/>
+            <circle cx="103" cy="103" r="3" fill="#fff"/><circle cx="143" cy="103" r="3" fill="#fff"/></g>
+          <path d="M113 126 H127 L120 139 Z" fill="#d97757"/>
+          <path d="M58 116 C58 26 182 26 182 116" stroke="#c8ccd2" stroke-width="7" fill="none" stroke-linecap="round"/>
+          <rect x="46" y="98" width="20" height="38" rx="9" fill="#0b0c0e"/>
+          <rect x="174" y="98" width="20" height="38" rx="9" fill="#0b0c0e"/>
+          <rect x="52" y="106" width="8" height="22" rx="4" class="acc glow"/>
+          <rect x="180" y="106" width="8" height="22" rx="4" class="acc glow"/>
+          <path d="M104 198 l-4 8 M110 199 v9 M116 198 l4 8 M124 198 l-4 8 M130 199 v9 M136 198 l4 8" stroke="#d97757" stroke-width="3" stroke-linecap="round"/>
+        </g>
+        <rect x="44" y="204" width="152" height="12" rx="6" fill="#000"/>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Hoot <small>the night owl</small></h2>
+      <p>Wise, quiet, listens with headphones on. Belly feathers are little <code>&gt;</code> prompt chevrons. Owls work alone at night — a nod to everything running locally.</p>
+      <div class="meta"><div class="swatches"><b style="background:#262833"></b><b style="background:#c8ccd2"></b><b style="background:#d97757"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 4. Fen -->
+  <article class="card" data-name="Fen">
+    <div class="stage"><span class="num">04</span>
+      <svg viewBox="0 0 240 220">
+        <path d="M84 148 Q74 206 82 222 H158 Q166 206 156 148 Q120 162 84 148 Z" fill="#0b0c0e" stroke="rgba(255,255,255,0.08)"/>
+        <circle cx="102" cy="186" r="5" class="acc glow"/>
+        <path d="M112 156 v22 M128 156 v22" stroke="#c8ccd2" stroke-width="2" stroke-linecap="round"/>
+        <g class="ear-l"><path d="M80 104 L40 16 L114 74 Z" fill="#d97757"/><path d="M82 94 L54 34 L106 74 Z" fill="#f2b8a0"/></g>
+        <g class="ear-r"><path d="M160 104 L200 16 L126 74 Z" fill="#d97757"/><path d="M158 94 L186 34 L134 74 Z" fill="#f2b8a0"/></g>
+        <ellipse cx="120" cy="112" rx="52" ry="44" fill="#d97757"/>
+        <path d="M120 152 C92 152 74 132 78 112 C92 122 108 120 120 108 C132 120 148 122 162 112 C166 132 148 152 120 152 Z" fill="#f7e3d4"/>
+        <g class="blink"><ellipse cx="100" cy="108" rx="6.5" ry="8.5" fill="#121216"/><ellipse cx="140" cy="108" rx="6.5" ry="8.5" fill="#121216"/></g>
+        <circle cx="102.5" cy="105" r="2.4" fill="#fff"/><circle cx="142.5" cy="105" r="2.4" fill="#fff"/>
+        <ellipse cx="120" cy="131" rx="6.5" ry="4.5" fill="#121216"/>
+        <path d="M113 139 Q116.5 143 120 139 Q123.5 143 127 139" stroke="#121216" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+        <circle cx="90" cy="126" r="5" fill="#f08a7a" opacity="0.55"/><circle cx="150" cy="126" r="5" fill="#f08a7a" opacity="0.55"/>
+        <path d="M30 40 q-8 10 0 20" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path d="M20 34 q-12 16 0 32" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.4s"/>
+        <path d="M210 40 q8 10 0 20" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.2s"/>
+        <path d="M220 34 q12 16 0 32" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.6s"/>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Fen <small>the fennec fox</small></h2>
+      <p>Biggest ears in the animal kingdom, in Claude orange. Wears a black hoodie with the status dot on its chest. Friendly, warm, a little mischievous.</p>
+      <div class="meta"><div class="swatches"><b style="background:#d97757"></b><b style="background:#f7e3d4"></b><b style="background:#0b0c0e"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 5. Jelly -->
+  <article class="card" data-name="Jelly">
+    <div class="stage"><span class="num">05</span>
+      <svg viewBox="0 0 240 220">
+        <defs>
+          <radialGradient id="jelly-bell" cx="0.45" cy="0.3" r="0.8">
+            <stop offset="0" stop-color="#4a4f78"/><stop offset="1" stop-color="#1e2033"/>
+          </radialGradient>
+        </defs>
+        <circle cx="62" cy="190" r="4" fill="none" stroke="rgba(255,255,255,0.4)" class="bubble"/>
+        <circle cx="186" cy="176" r="3" fill="none" stroke="rgba(255,255,255,0.4)" class="bubble b2"/>
+        <circle cx="196" cy="206" r="5" fill="none" stroke="rgba(255,255,255,0.4)" class="bubble b3"/>
+        <g class="float">
+          <rect x="71" y="96" width="9" height="34" rx="4.5" class="acc bar top" opacity="0.85"/>
+          <rect x="87" y="96" width="9" height="62" rx="4.5" class="acc bar top d1" opacity="0.85"/>
+          <rect x="103" y="96" width="9" height="86" rx="4.5" class="acc bar top d2" opacity="0.85"/>
+          <rect x="119" y="96" width="9" height="70" rx="4.5" class="acc bar top d3" opacity="0.85"/>
+          <rect x="135" y="96" width="9" height="50" rx="4.5" class="acc bar top d4" opacity="0.85"/>
+          <rect x="151" y="96" width="9" height="30" rx="4.5" class="acc bar top d5" opacity="0.85"/>
+          <path d="M58 100 C58 34 182 34 182 100 Q172 109 162 100 Q152 109 141 100 Q130 109 120 100 Q110 109 99 100 Q88 109 78 100 Q68 109 58 100 Z" fill="url(#jelly-bell)" class="acc-s" stroke-width="2" stroke-opacity="0.6"/>
+          <path d="M80 62 Q92 46 112 44" stroke="rgba(255,255,255,0.35)" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <g class="blink"><circle cx="103" cy="76" r="6" fill="#f5f6f8"/><circle cx="137" cy="76" r="6" fill="#f5f6f8"/></g>
+          <path d="M113 85 Q120 91 127 85" stroke="#f5f6f8" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          <circle cx="92" cy="86" r="5" fill="#f472b6" opacity="0.45"/><circle cx="148" cy="86" r="5" fill="#f472b6" opacity="0.45"/>
+        </g>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Jelly <small>the jellyfish</small></h2>
+      <p>Drifts calmly just below the island. Its tentacles are a live waveform, glowing in the status colour. Soft, ambient, never in the way.</p>
+      <div class="meta"><div class="swatches"><b style="background:#4a4f78"></b><b style="background:#1e2033"></b><b style="background:var(--accent)"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 6. Purr -->
+  <article class="card" data-name="Purr">
+    <div class="stage"><span class="num">06</span>
+      <svg viewBox="0 0 240 220">
+        <g class="tail"><path d="M152 200 q10 -18 20 0 t20 0 t20 0" stroke="#0a0a0c" stroke-width="10" fill="none" stroke-linecap="round"/><circle cx="212" cy="200" r="5.5" class="acc"/></g>
+        <path d="M86 116 Q68 200 92 208 H148 Q172 200 154 116 Z" fill="#0a0a0c" stroke="rgba(255,255,255,0.08)"/>
+        <ellipse cx="106" cy="207" rx="13" ry="7" fill="#0a0a0c" stroke="rgba(255,255,255,0.1)"/>
+        <ellipse cx="134" cy="207" rx="13" ry="7" fill="#0a0a0c" stroke="rgba(255,255,255,0.1)"/>
+        <path d="M78 70 L84 26 L112 54 Z" fill="#0a0a0c" stroke="rgba(255,255,255,0.08)"/>
+        <path d="M162 70 L156 26 L128 54 Z" fill="#0a0a0c" stroke="rgba(255,255,255,0.08)"/>
+        <path d="M84 60 L87 38 L102 54 Z M156 60 L153 38 L138 54 Z" fill="#2a2c31"/>
+        <rect x="70" y="46" width="100" height="78" rx="36" fill="#0a0a0c" stroke="rgba(255,255,255,0.08)"/>
+        <path d="M94 126 H146" class="acc-s" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="120" cy="132" r="5" class="acc"/>
+        <g class="blink"><ellipse cx="101" cy="84" rx="11" ry="12" class="acc"/><ellipse cx="139" cy="84" rx="11" ry="12" class="acc"/>
+          <ellipse cx="101" cy="84" rx="2.8" ry="9" fill="#000"/><ellipse cx="139" cy="84" rx="2.8" ry="9" fill="#000"/>
+          <circle cx="104.5" cy="79" r="2.4" fill="#fff"/><circle cx="142.5" cy="79" r="2.4" fill="#fff"/></g>
+        <path d="M116 100 H124 L120 105 Z" fill="#f472b6"/>
+        <path d="M113 108 Q116.5 112 120 108 Q123.5 112 127 108" stroke="#6b7079" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path d="M64 96 L90 100 M62 106 L90 104 M176 96 L150 100 M178 106 L150 104" stroke="#6b7079" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Purr <small>the notch cat</small></h2>
+      <p>A black cat with a head shaped like the island, eyes glowing the status colour. The tail is a little sine wave. Sits quietly, notices everything.</p>
+      <div class="meta"><div class="swatches"><b style="background:#0a0a0c"></b><b style="background:#2a2c31"></b><b style="background:var(--accent)"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 7. Prompt -->
+  <article class="card" data-name="Prompt">
+    <div class="stage"><span class="num">07</span>
+      <svg viewBox="0 0 240 220">
+        <g class="bob">
+          <path d="M120 24 V42" stroke="#9398a1" stroke-width="3"/>
+          <circle cx="120" cy="20" r="11" class="acc" opacity="0.25"/>
+          <circle cx="120" cy="20" r="6.5" class="acc glow"/>
+          <rect x="52" y="68" width="10" height="30" rx="4" fill="#3a3d46"/>
+          <rect x="178" y="68" width="10" height="30" rx="4" fill="#3a3d46"/>
+          <rect x="60" y="42" width="120" height="86" rx="22" fill="#1d1f25" stroke="#3a3d46" stroke-width="2"/>
+          <rect x="72" y="54" width="96" height="62" rx="13" fill="#050608"/>
+          <path d="M88 68 l11 9 -11 9" class="acc-s" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="128" y="82" width="22" height="5" rx="2.5" class="acc cursor"/>
+          <rect x="104" y="98" width="4" height="10" rx="2" fill="#f5f6f8" class="bar"/>
+          <rect x="111" y="96" width="4" height="14" rx="2" fill="#f5f6f8" class="bar d2"/>
+          <rect x="118" y="94" width="4" height="18" rx="2" fill="#f5f6f8" class="bar d4"/>
+          <rect x="125" y="96" width="4" height="14" rx="2" fill="#f5f6f8" class="bar d1"/>
+          <rect x="132" y="98" width="4" height="10" rx="2" fill="#f5f6f8" class="bar d3"/>
+          <path d="M84 146 Q62 158 64 180" stroke="#3a3d46" stroke-width="9" fill="none" stroke-linecap="round"/>
+          <circle cx="64" cy="184" r="8" fill="#d97757"/>
+          <g class="wavearm"><path d="M156 146 Q182 136 186 112" stroke="#3a3d46" stroke-width="9" fill="none" stroke-linecap="round"/><circle cx="186" cy="106" r="8" fill="#d97757"/></g>
+          <rect x="82" y="134" width="76" height="56" rx="16" fill="#1d1f25" stroke="#3a3d46" stroke-width="2"/>
+          <rect x="100" y="148" width="40" height="13" rx="6.5" fill="#000"/>
+          <circle cx="109" cy="154.5" r="3.5" class="acc"/>
+          <rect x="94" y="190" width="16" height="16" rx="5" fill="#3a3d46"/>
+          <rect x="130" y="190" width="16" height="16" rx="5" fill="#3a3d46"/>
+          <rect x="88" y="204" width="26" height="9" rx="4.5" fill="#d97757"/>
+          <rect x="126" y="204" width="26" height="9" rx="4.5" fill="#d97757"/>
+        </g>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Prompt <small>the terminal bot</small></h2>
+      <p>A tiny robot whose face is a terminal: <code>&gt;</code> and a blinking <code>_</code> for eyes, a waveform for a mouth. Leans into the "Code" half of the name.</p>
+      <div class="meta"><div class="swatches"><b style="background:#1d1f25"></b><b style="background:#050608"></b><b style="background:#d97757"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 8. Whisper -->
+  <article class="card" data-name="Whisper">
+    <div class="stage"><span class="num">08</span>
+      <svg viewBox="0 0 240 220">
+        <ellipse cx="114" cy="208" rx="36" ry="5" fill="#000" opacity="0.35"/>
+        <g class="float">
+          <path d="M68 186 V110 C68 56 160 56 160 110 V186 Q151 174 141 186 Q132 198 123 186 Q114 174 105 186 Q96 198 87 186 Q78 174 68 186 Z" fill="#eef0f6"/>
+          <path d="M146 92 C152 104 152 150 150 176" stroke="#d6d9e4" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.7"/>
+          <g class="blink"><ellipse cx="98" cy="110" rx="6" ry="9" fill="#15161a"/><ellipse cx="128" cy="110" rx="6" ry="9" fill="#15161a"/></g>
+          <circle cx="100" cy="106" r="2.2" fill="#fff"/><circle cx="130" cy="106" r="2.2" fill="#fff"/>
+          <circle cx="86" cy="124" r="6" fill="#f472b6" opacity="0.4"/><circle cx="140" cy="124" r="6" fill="#f472b6" opacity="0.4"/>
+          <ellipse cx="114" cy="130" rx="4.5" ry="5.5" fill="#15161a"/>
+          <ellipse cx="160" cy="132" rx="9" ry="14" fill="#eef0f6" transform="rotate(-20 160 132)"/>
+          <path d="M180 116 q7 9 0 18" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <path d="M190 110 q11 15 0 30" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.3s"/>
+          <path d="M200 104 q15 21 0 42" class="acc-s wave" stroke-width="3" fill="none" stroke-linecap="round" style="animation-delay:.6s"/>
+        </g>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Whisper <small>the ghost</small></h2>
+      <p>Named after whisper.cpp. A shy little ghost that whispers behind its hand — invisible, private, nothing leaves your machine. Pale against the dark UI.</p>
+      <div class="meta"><div class="swatches"><b style="background:#eef0f6"></b><b style="background:#15161a"></b><b style="background:#f472b6"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 9. Slo -->
+  <article class="card" data-name="Slo">
+    <div class="stage"><span class="num">09</span>
+      <svg viewBox="0 0 240 220">
+        <path d="M60 0 H180 V10 A20 20 0 0 1 160 30 H80 A20 20 0 0 1 60 10 Z" fill="#000"/>
+        <path d="M84 30 H156" class="acc-s glow" stroke-width="2.5" stroke-linecap="round"/>
+        <g class="sway slow">
+          <path d="M94 24 Q86 56 98 86" stroke="#7a5c48" stroke-width="17" fill="none" stroke-linecap="round"/>
+          <path d="M146 24 Q154 56 142 86" stroke="#7a5c48" stroke-width="17" fill="none" stroke-linecap="round"/>
+          <path d="M88 20 q2 -8 6 -10 M95 19 q2 -8 6 -9 M140 19 q2 -8 6 -9 M147 20 q2 -8 6 -10" stroke="#f1e1cf" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          <ellipse cx="120" cy="156" rx="42" ry="46" fill="#8a6a55"/>
+          <path d="M98 194 Q92 210 100 216 M142 194 Q148 210 140 216" stroke="#7a5c48" stroke-width="14" fill="none" stroke-linecap="round"/>
+          <ellipse cx="120" cy="164" rx="24" ry="28" fill="#a3846c"/>
+          <circle cx="120" cy="104" r="38" fill="#9a7a62"/>
+          <ellipse cx="120" cy="110" rx="30" ry="23" fill="#f1e1cf"/>
+          <ellipse cx="104" cy="106" rx="11" ry="6.5" fill="#4a3427" transform="rotate(-22 104 106)"/>
+          <ellipse cx="136" cy="106" rx="11" ry="6.5" fill="#4a3427" transform="rotate(22 136 106)"/>
+          <path d="M100 107 Q104 104 108 107" stroke="#f1e1cf" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+          <path d="M132 107 Q136 104 140 107" stroke="#f1e1cf" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+          <ellipse cx="120" cy="117" rx="5.5" ry="3.8" fill="#3a2a20"/>
+          <path d="M111 123 Q120 131 129 123" stroke="#3a2a20" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+          <circle cx="120" cy="164" r="6" class="acc glow"/>
+        </g>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Slo <small>the sloth</small></h2>
+      <p>Hangs from the island all day, perfectly relaxed. Sloths save energy — so does a local model on your own GPU. Status light glows on its belly.</p>
+      <div class="meta"><div class="swatches"><b style="background:#8a6a55"></b><b style="background:#f1e1cf"></b><b style="background:#4a3427"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+  <!-- 10. Echo -->
+  <article class="card" data-name="Echo">
+    <div class="stage"><span class="num">10</span>
+      <svg viewBox="0 0 240 220">
+        <rect x="160" y="24" width="68" height="40" rx="13" fill="#f5f6f8"/>
+        <path d="M172 62 L166 76 L184 63 Z" fill="#f5f6f8"/>
+        <rect x="171" y="33" width="46" height="5" rx="2.5" fill="#2a2c31" class="type"/>
+        <rect x="171" y="42" width="38" height="5" rx="2.5" fill="#2a2c31" class="type t2"/>
+        <rect x="171" y="51" width="28" height="5" rx="2.5" class="acc type t3"/>
+        <g class="bob">
+          <path d="M106 176 L90 214 L112 210 L122 180 Z" fill="#6366f1"/>
+          <path d="M112 178 L104 214 L118 208 Z" fill="#818cf8"/>
+          <ellipse cx="120" cy="138" rx="34" ry="46" fill="#d97757"/>
+          <path d="M100 116 Q84 158 110 186 Q126 158 118 116 Z" fill="#b85f42"/>
+          <path d="M102 168 Q104 180 110 186 Q112 174 108 166 Z" fill="#6366f1"/>
+          <path d="M118 62 Q108 42 122 32 Q122 48 130 58 Z" fill="#f0956f"/>
+          <path d="M128 60 Q126 40 142 36 Q136 50 138 60 Z" fill="#f0956f"/>
+          <circle cx="128" cy="88" r="30" fill="#d97757"/>
+          <ellipse cx="140" cy="88" rx="14" ry="16" fill="#fff4ec"/>
+          <g class="blink"><circle cx="141" cy="84" r="5.2" fill="#121216"/></g>
+          <circle cx="142.8" cy="82.2" r="1.8" fill="#fff"/>
+          <path d="M152 82 Q174 80 170 106 Q162 96 150 98 Z" fill="#2a2c31"/>
+          <path d="M151 98 Q160 98 162 104 Q154 108 150 102 Z" fill="#3a3d46"/>
+        </g>
+        <path d="M108 186 v8 M114 186 v8 M126 186 v8 M132 186 v8" stroke="#9398a1" stroke-width="3.5" stroke-linecap="round"/>
+        <rect x="40" y="190" width="160" height="22" rx="11" fill="#000" stroke="rgba(255,255,255,0.08)"/>
+        <circle cx="56" cy="201" r="4.5" class="acc glow"/>
+        <rect x="170" y="197" width="4" height="8" rx="2" fill="#f5f6f8" class="bar"/>
+        <rect x="177" y="195" width="4" height="12" rx="2" fill="#f5f6f8" class="bar d2"/>
+        <rect x="184" y="197" width="4" height="8" rx="2" fill="#f5f6f8" class="bar d4"/>
+      </svg>
+    </div>
+    <div class="info">
+      <h2>Echo <small>the parrot</small></h2>
+      <p>Repeats everything you say — word for word. That's transcription. Perches on the island, Claude-orange feathers with an indigo tail, speech bubble typing the transcript.</p>
+      <div class="meta"><div class="swatches"><b style="background:#d97757"></b><b style="background:#6366f1"></b><b style="background:#2a2c31"></b></div><div class="minis"></div></div>
+    </div>
+  </article>
+
+</main>
+
+<footer>Notch Code · mascot concepts · all vector, recolourable, animate with plain CSS</footer>
+
+<div class="overlay" id="overlay"><div class="big" id="big"></div><div class="cap" id="cap"></div></div>
+
+<script>
+  const states = [
+    ["Claude", "#d97757", "claude · idle"],
+    ["Recording", "#f4505e", "● rec 12:48 · …and that ships Friday"],
+    ["Working", "#38bdf8", "claude · editing notch.css"],
+    ["Auto", "#f5a524", "claude · auto mode"],
+    ["Voice prompt", "#22d3ee", "“Claude, …”"],
+    ["Done", "#22c55e", "claude · done"],
+    ["Idle", "#9398a1", "idle"],
+  ];
+  const box = document.getElementById("states");
+  const label = document.getElementById("state-label");
+  states.forEach(([name, color, text], i) => {
+    const b = document.createElement("button");
+    b.style.setProperty("--c", color);
+    b.innerHTML = `<i></i>${name}`;
+    b.setAttribute("aria-pressed", i === 0);
+    b.onclick = () => {
+      document.documentElement.style.setProperty("--accent", color);
+      label.textContent = text;
+      box.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    };
+    box.appendChild(b);
+  });
+
+  // icon-size previews
+  document.querySelectorAll(".card").forEach(card => {
+    const svg = card.querySelector(".stage svg");
+    const minis = card.querySelector(".minis");
+    [48, 24].forEach(px => {
+      const c = svg.cloneNode(true);
+      c.setAttribute("width", px);
+      c.setAttribute("height", px * 220 / 240);
+      c.style.animation = "none";
+      minis.appendChild(c);
+    });
+  });
+
+  // zoom
+  const overlay = document.getElementById("overlay");
+  const big = document.getElementById("big");
+  const cap = document.getElementById("cap");
+  document.querySelectorAll(".card").forEach(card => {
+    card.onclick = () => {
+      big.replaceChildren(card.querySelector(".stage svg").cloneNode(true));
+      cap.textContent = card.dataset.name;
+      overlay.classList.add("open");
+    };
+  });
+  overlay.onclick = () => overlay.classList.remove("open");
+  addEventListener("keydown", e => { if (e.key === "Escape") overlay.classList.remove("open"); });
+</script>
+</body>
+</html>
