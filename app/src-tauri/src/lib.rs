@@ -387,7 +387,7 @@ fn notch_focus(window: WebviewWindow, on: bool) {
     hover::focus(&window, on);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_transcript(app: AppHandle) -> Result<(), String> {
     let path = app.state::<AppState>().status.lock().unwrap().transcript_path.clone();
     match path {
@@ -396,7 +396,7 @@ fn open_transcript(app: AppHandle) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_transcripts_folder(app: AppHandle) -> Result<(), String> {
     open_folder(&app)
 }
@@ -462,6 +462,34 @@ fn place_window(window: &WebviewWindow) -> tauri::Result<()> {
 
 // ---------------------------------------------------------------- app
 
+/// Windows slows down processes it takes for background work (EcoQoS: slower
+/// cores, coarser timers), and the notch is hardly ever the focused window:
+/// transcription, voice and the hover polling would lag. Opt out.
+fn no_power_throttling() {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling,
+        SetProcessInformation,
+    };
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        // a bit in ControlMask but not here: never throttle that
+        StateMask: 0,
+    };
+    let ok = unsafe {
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessPowerThrottling,
+            &state as *const _ as *const std::ffi::c_void,
+            size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        )
+    };
+    if ok == 0 {
+        paths::log("couldn't opt out of power throttling");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// `NotchCode.exe --terminal …` opens a terminal window and quits (see terminal.rs).
 pub fn terminal_from_args() -> Option<i32> {
@@ -476,6 +504,7 @@ pub fn run() {
     std::panic::set_hook(Box::new(|info| paths::log(format!("PANIC: {info}"))));
     update::finish_pending();
     paths::log("Notch Code starting");
+    no_power_throttling();
     paths::init_whisper_logging();
 
     tauri::Builder::default()

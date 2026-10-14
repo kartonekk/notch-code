@@ -15,6 +15,7 @@ import {
   formatDuration,
   ImageIcon,
   formatSpan,
+  formatTokens,
   RetryIcon,
   SendIcon,
   StepGlyph,
@@ -43,7 +44,17 @@ export type FeedItem =
       started: number;
       duration_ms?: number;
     }
-  | { type: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[]; steps: number };
+  | {
+      type: "done";
+      run: number;
+      ok: boolean;
+      stopped: boolean;
+      message: string | null;
+      duration_ms: number;
+      denied: Denied[];
+      steps: number;
+      tokens: number;
+    };
 
 /** What the collapsed notch says about a run that ended while it was closed. */
 export interface AgentNotice {
@@ -87,7 +98,17 @@ function applyEvent(prev: FeedItem[], e: AgentEvent): FeedItem[] {
       const steps = prev.filter((i) => i.type === "step" && i.run === e.run).length;
       next = [
         ...prev.map((i) => (i.type === "step" && i.run === e.run && i.state === "running" ? { ...i, state: e.ok ? ("ok" as const) : ("error" as const) } : i)),
-        { type: "done", run: e.run, ok: e.ok, stopped: e.stopped, message: e.message, duration_ms: e.duration_ms, denied: e.denied, steps },
+        {
+          type: "done",
+          run: e.run,
+          ok: e.ok,
+          stopped: e.stopped,
+          message: e.message,
+          duration_ms: e.duration_ms,
+          denied: e.denied,
+          steps,
+          tokens: e.tokens,
+        },
       ];
       break;
     }
@@ -714,6 +735,11 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
               {stepElapsed}
             </span>
           )}
+          {session.tokens > 0 && (
+            <span className="run-tokens" title="Tokens Claude has written for this message so far">
+              ↓ {formatTokens(session.tokens)} tokens
+            </span>
+          )}
           <span className="run-time" title="Since the message was sent">
             {stepElapsed ? `total ${elapsed}` : elapsed}
           </span>
@@ -1234,7 +1260,7 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
           {done.stopped
             ? "Stopped"
             : done.ok
-              ? `Done in ${formatSpan(done.duration_ms)}${done.steps ? ` · ${done.steps} step${done.steps === 1 ? "" : "s"}` : ""}`
+              ? `Done in ${formatSpan(done.duration_ms)}${done.steps ? ` · ${done.steps} step${done.steps === 1 ? "" : "s"}` : ""}${done.tokens ? ` · ${formatTokens(done.tokens)} tokens` : ""}`
               : (done.message ?? "Something went wrong")}
         </span>
         {canAct && (done.stopped || !done.ok) && (

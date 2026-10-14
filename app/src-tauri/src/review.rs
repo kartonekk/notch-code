@@ -387,14 +387,17 @@ pub fn review_status(state: tauri::State<Review>) -> ReviewStatus {
     state.status.lock().unwrap().clone()
 }
 
+// The commands below read, copy and diff files or start VS Code: `async` keeps
+// that off the UI thread (plain commands run on it and freeze the notch).
+
 /// Keep the changes (all, or one file).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn review_accept(app: AppHandle, project: String, path: Option<String>) -> Result<(), String> {
     settle(&app, &project, path, false)
 }
 
 /// Put the originals back (all, or one file).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn review_reject(app: AppHandle, project: String, path: Option<String>) -> Result<(), String> {
     if crate::agent::is_running_in(&app, &project) {
         return Err("Wait until Claude has finished.".into());
@@ -402,14 +405,14 @@ pub fn review_reject(app: AppHandle, project: String, path: Option<String>) -> R
     settle(&app, &project, path, true)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn review_diff(app: AppHandle, project: String, path: String) -> Result<(), String> {
     app.state::<Review>().opened.lock().unwrap().insert(path.clone());
     open_diff(&project, &path)
 }
 
 /// Live diff on: every changed file opens in VS Code as soon as it changes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn review_set_live(app: AppHandle, live: bool) -> Result<(), String> {
     if live && find_vscode().is_none() {
         return Err("VS Code not found (install it, or add `code` to PATH).".into());

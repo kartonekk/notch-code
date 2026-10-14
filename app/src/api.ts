@@ -129,6 +129,8 @@ export interface SessionStatus {
   model: string | null;
   /** caveman level Claude answers with ("ultra", …); null = normal answers */
   caveman: string | null;
+  /** tokens Claude has written for the running (or last) message, live; 0 = none reported */
+  tokens: number;
 }
 
 export interface AgentStatus {
@@ -190,7 +192,7 @@ export type AgentEvent = { sid: number } & (
   /** `at` = unix ms when the step started */
   | { kind: "step"; run: number; id: string; icon: StepIcon; label: string; detail: string | null; at: number }
   | { kind: "step_done"; run: number; id: string; ok: boolean; output: string | null; label: string; duration_ms: number }
-  | { kind: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[] }
+  | { kind: "done"; run: number; ok: boolean; stopped: boolean; message: string | null; duration_ms: number; denied: Denied[]; tokens: number }
 );
 
 export interface FileChange {

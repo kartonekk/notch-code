@@ -69,6 +69,9 @@ pub struct SessionStatus {
     /// Caveman level Claude answers with ("ultra", …), as its hooks last
     /// reported it; expected from the plugin's settings until the first run.
     pub caveman: Option<String>,
+    /// Tokens Claude has written for the running (or last) message, counted
+    /// live like Claude Code's spinner does; 0 = none reported.
+    pub tokens: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -184,7 +187,7 @@ pub enum AgentEvent {
     /// `at` = unix ms when it started
     Step { run: u64, id: String, icon: &'static str, label: String, detail: Option<String>, at: u64 },
     StepDone { run: u64, id: String, ok: bool, output: Option<String>, label: String, duration_ms: u64 },
-    Done { run: u64, ok: bool, stopped: bool, message: Option<String>, duration_ms: u64, denied: Vec<Denied> },
+    Done { run: u64, ok: bool, stopped: bool, message: Option<String>, duration_ms: u64, denied: Vec<Denied>, tokens: u64 },
 }
 
 struct Session {
@@ -336,13 +339,21 @@ fn persist(inner: &mut Inner, used: Option<&str>) {
     inner.recent = cfg.recent_projects;
 }
 
+/// Re-reads the open sessions' changes in the background: that reads and diffs
+/// every pending file, and commands run on the UI thread.
 fn sync_review(app: &AppHandle) {
-    let projects: Vec<String> = {
-        let agent = app.state::<Agent>();
-        let inner = agent.inner.lock().unwrap();
-        inner.sessions.iter().map(|s| s.status.project.clone()).collect()
-    };
-    review::track(app, projects);
+    static TRACKING: Mutex<()> = Mutex::new(());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _one_at_a_time = TRACKING.lock().unwrap();
+        // read now, not when asked: the last one to run sees the latest sessions
+        let projects: Vec<String> = {
+            let agent = app.state::<Agent>();
+            let inner = agent.inner.lock().unwrap();
+            inner.sessions.iter().map(|s| s.status.project.clone()).collect()
+        };
+        review::track(&app, projects);
+    });
 }
 
 /// Restores the open sessions and the recent list from config.json.
@@ -524,6 +535,8 @@ fn start(app: &AppHandle, sid: u64, prompt: &str, mode: &str, allow: &[String], 
 
     let mut cmd = Command::new(&cli);
     cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages"]);
+    // the answer as it's written, for the live token count
+    cmd.arg("--include-partial-messages");
     cmd.args(["--permission-prompts", "none"]);
     // "allow" only makes "reckless" reachable, so the mode can be switched to it
     // while Claude works; the mode itself decides
@@ -625,6 +638,58 @@ fn start(app: &AppHandle, sid: u64, prompt: &str, mode: &str, allow: &[String], 
     Ok(())
 }
 
+/// How often the live token count goes to the UI while Claude writes.
+const TOKENS_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Output tokens of one message, from Claude's partial messages: the exact
+/// count of each finished API call, plus an estimate for the one being written
+/// (about 4 characters a token, as Claude Code's own spinner counts).
+#[derive(Default)]
+struct Tokens {
+    run: u64,
+    /// finished calls
+    done: u64,
+    /// characters of the call being written
+    chars: u64,
+    /// partial messages came at all
+    streamed: bool,
+    shown: u64,
+    shown_at: Option<Instant>,
+}
+
+impl Tokens {
+    /// Takes one `stream_event`; returns the count when the UI should get it.
+    fn take(&mut self, event: &Value) -> Option<u64> {
+        self.streamed = true;
+        let mut now = false;
+        match event.get("type").and_then(Value::as_str) {
+            Some("message_start") => self.chars = 0,
+            Some("content_block_delta") => {
+                let delta = event.get("delta");
+                let piece = ["text", "thinking", "partial_json"].iter().find_map(|k| delta.and_then(|d| d.get(*k)).and_then(Value::as_str));
+                self.chars += piece.map_or(0, |p| p.chars().count() as u64);
+            }
+            // the call is over: its real count replaces the estimate
+            Some("message_delta") => {
+                if let Some(n) = event.pointer("/usage/output_tokens").and_then(Value::as_u64) {
+                    self.done += n;
+                    self.chars = 0;
+                    now = true;
+                }
+            }
+            _ => {}
+        }
+        let total = self.done + self.chars / 4;
+        let due = now || self.shown_at.is_none_or(|t| t.elapsed() >= TOKENS_EVERY);
+        if total == self.shown || !due {
+            return None;
+        }
+        self.shown = total;
+        self.shown_at = Some(Instant::now());
+        Some(total)
+    }
+}
+
 /// Follows a Claude process until it exits: its events become steps of the
 /// running message, and the answer to that message's last part ends it.
 fn read(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout, stderr_tail: Arc<Mutex<String>>, project: String) {
@@ -638,6 +703,7 @@ fn read(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout
     let mut edits: HashSet<String> = HashSet::new();
     // Claude wrote something in this turn
     let mut said = false;
+    let mut tokens = Tokens::default();
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
         let Ok(ev) = serde_json::from_str::<Value>(&line) else { continue };
@@ -659,6 +725,9 @@ fn read(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout
         // sub-agent chatter stays inside its "Delegating" step
         if ev.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
             continue;
+        }
+        if tokens.run != run {
+            tokens = Tokens { run, ..Default::default() };
         }
         match ev.get("type").and_then(Value::as_str) {
             Some("system") if ev.get("subtype").and_then(Value::as_str) == Some("init") => {
@@ -761,7 +830,19 @@ fn read(app: AppHandle, sid: u64, serial: u64, child: Child, stdout: ChildStdout
                     record_limit(app, info);
                 }
             }
+            Some("stream_event") => {
+                if let Some(n) = ev.get("event").and_then(|e| tokens.take(e)) {
+                    session_update(app, sid, |s| s.status.tokens = n);
+                }
+            }
             Some("result") => {
+                // no partial messages (an older Claude Code): the turn's total, at its end
+                if !tokens.streamed {
+                    if let Some(n) = ev.pointer("/usage/output_tokens").and_then(Value::as_u64).filter(|n| *n > 0) {
+                        tokens.done += n;
+                        session_update(app, sid, |s| s.status.tokens = tokens.done);
+                    }
+                }
                 let is_error = ev.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 let text = ev.get("result").and_then(Value::as_str).unwrap_or("").to_string();
                 // some slash commands (/context, /cost, …) answer only here
@@ -1122,7 +1203,8 @@ fn finish(app: &AppHandle, sid: u64, run: u64, result: Result<Outcome, String>, 
         }
     }
 
-    let (stopped, started) = with_session(app, sid, |s| (std::mem::take(&mut s.stopping), s.run_started.take())).unwrap_or((true, None));
+    let (stopped, started, tokens) =
+        with_session(app, sid, |s| (std::mem::take(&mut s.stopping), s.run_started.take(), s.status.tokens)).unwrap_or((true, None, 0));
     let gemini = with_session(app, sid, |s| s.status.provider == "gemini").unwrap_or(false);
     let who = if gemini { "Gemini" } else { "Claude" };
     // Claude answered without caveman's hooks: the plugin is off
@@ -1168,6 +1250,7 @@ fn finish(app: &AppHandle, sid: u64, run: u64, result: Result<Outcome, String>, 
         message,
         duration_ms: started.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0),
         denied,
+        tokens,
     });
     // the reply used some of the plan
     if !gemini {
@@ -1324,6 +1407,7 @@ pub fn agent_send(app: AppHandle, sid: u64, prompt: String, mode: String, allow:
             s.status.running = true;
             s.status.current = Some("Thinking…".into());
             s.status.started_at = Some(now_ms());
+            s.status.tokens = 0;
             s.stopping = false;
         }
         None => result = Err("That session was closed.".to_string()),
@@ -1438,7 +1522,16 @@ pub fn agent_stop(app: AppHandle, sid: u64) {
 /// Ends the session's Claude process, stopping its message if it's working
 /// on one; `busy_only`: leave an idle one running.
 fn end_proc(app: &AppHandle, sid: u64, busy_only: bool) {
-    let pid = with_session(app, sid, |s| {
+    // taskkill takes a while, and commands run on the UI thread; the session
+    // has already let go of the process, so nothing waits for it to be gone
+    if let Some(pid) = take_proc(app, sid, busy_only) {
+        std::thread::spawn(move || kill_tree(pid));
+    }
+}
+
+/// Detaches the session's process (see `end_proc`); returns its pid.
+fn take_proc(app: &AppHandle, sid: u64, busy_only: bool) -> Option<u32> {
+    with_session(app, sid, |s| {
         if s.status.running {
             s.stopping = true;
         } else if busy_only {
@@ -1446,22 +1539,22 @@ fn end_proc(app: &AppHandle, sid: u64, busy_only: bool) {
         }
         s.proc.take().map(|p| p.pid)
     })
-    .flatten();
-    if let Some(pid) = pid {
-        kill_tree(pid);
-    }
+    .flatten()
 }
 
-/// Ends every session's Claude (on quit).
+/// Ends every session's Claude (on quit), before the app exits.
 pub fn stop_all(app: &AppHandle) {
     let ids: Vec<u64> = app.state::<Agent>().inner.lock().unwrap().sessions.iter().map(|s| s.status.id).collect();
     for sid in ids {
-        end_proc(app, sid, false);
+        if let Some(pid) = take_proc(app, sid, false) {
+            kill_tree(pid);
+        }
     }
 }
 
 /// What "/" can run in this session's folder, for the chat bar's menu.
-#[tauri::command]
+/// (`async`: off the UI thread, it reads skill and command folders.)
+#[tauri::command(async)]
 pub fn agent_commands(app: AppHandle, sid: u64) -> Result<Vec<commands::SlashCommand>, String> {
     let (project, slash) = with_session(&app, sid, |s| (s.status.project.clone(), s.slash.clone())).ok_or("That session was closed.")?;
     Ok(commands::list(&project, &slash))
@@ -1526,7 +1619,7 @@ pub async fn agent_pick_images(app: AppHandle) -> Result<Vec<String>, String> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_open_folder(app: AppHandle, path: String) -> Result<(), String> {
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }

@@ -19,6 +19,11 @@ export function formatSpan(ms: number) {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
+/** "850", "1.2k", "34.5k": a token count the way Claude Code shows it */
+export function formatTokens(n: number) {
+  return n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`;
+}
+
 export function basename(path: string) {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? path;
