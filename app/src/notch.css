@@ -2440,6 +2440,27 @@ kbd,
   font-size: 11px;
   font-weight: 500;
   color: #9a9fa8;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model.is-gemini .model-dot {
+  background: #818cf8;
+}
+.model.is-gemini .model-btn {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+}
+.model.is-gemini .model-btn:hover,
+.model.is-gemini .model-btn.open {
+  background: rgba(99, 102, 241, 0.22);
+}
+.model.is-gemini .model-name {
+  color: #c7d2fe;
+}
+.model.is-gemini .menu-item.is-current .menu-title::before {
+  background: #818cf8;
 }
 /* caveman level Claude answers with, next to the model */
 .caveman-badge {

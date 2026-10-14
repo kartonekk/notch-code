@@ -545,7 +545,7 @@ export default function App() {
                       </button>
                     </header>
                     {termError && <p className="error-text">{termError}</p>}
-                    <CodeTab key={current.id} agents={agents} session={current} voice={voice} onHold={setHold} />
+                    <CodeTab key={current.id} agents={agents} session={current} voice={voice} gemini={gemini} onHold={setHold} />
                   </section>
                 ) : (
                   <Home

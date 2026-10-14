@@ -61,12 +61,19 @@ export interface ClaudeStatus {
   plan: string | null;
 }
 
+export interface GeminiModel {
+  id: string;
+  label: string;
+  description?: string | null;
+}
+
 /** Gemini's sign-in: Antigravity CLI with a Google account (the Gemini subscription) */
 export interface GeminiStatus {
   state: ClaudeAuthState;
   message: string | null;
   /** the Google account it is signed in with */
   account: string | null;
+  models: GeminiModel[];
 }
 
 /** the agent a session uses */
@@ -255,6 +262,7 @@ export const api = {
   geminiLogin: () => invoke<void>("gemini_login"),
   geminiLogout: () => invoke<void>("gemini_logout"),
   geminiInstall: () => invoke<void>("gemini_install"),
+  geminiModels: () => invoke<GeminiModel[]>("gemini_models"),
   mediaStatus: () => invoke<Media | null>("media_status"),
   mediaControl: (action: "toggle" | "next" | "prev") => invoke<void>("media_control", { action }),
   settingsGet: () => invoke<Settings>("settings_get"),

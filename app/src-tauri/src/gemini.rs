@@ -11,13 +11,14 @@
 //! console window until the credential shows up.
 
 use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::claude::{hidden, wait_for, AuthState};
@@ -27,8 +28,16 @@ const INSTALL_SCRIPT: &str = "https://antigravity.google/cli/install.ps1";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const LOGIN_POLL: Duration = Duration::from_millis(1500);
+const MODELS_TIMEOUT: Duration = Duration::from_secs(15);
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 const EXPIRED: &str = "Gemini's sign-in has expired. Sign in again in Settings.";
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct GeminiModel {
+    pub id: String,
+    pub label: String,
+    pub description: Option<String>,
+}
 
 #[derive(Clone, Debug, Serialize, Default)]
 pub struct GeminiStatus {
@@ -36,6 +45,7 @@ pub struct GeminiStatus {
     pub message: Option<String>,
     /// The Google account it is signed in with.
     pub account: Option<String>,
+    pub models: Vec<GeminiModel>,
 }
 
 #[derive(Default)]
@@ -136,17 +146,89 @@ fn exclusive(app: &AppHandle, f: impl FnOnce()) {
     g.busy.store(false, Ordering::SeqCst);
 }
 
-fn check(app: &AppHandle) {
-    let status = if exe().is_none() {
-        GeminiStatus { state: AuthState::NotInstalled, message: Some("Antigravity CLI isn't installed.".into()), ..Default::default() }
-    } else if signed_in() && !app.state::<Gemini>().auth_failed.load(Ordering::SeqCst) {
-        GeminiStatus { state: AuthState::SignedIn, account: account(), ..Default::default() }
-    } else if signed_in() {
-        GeminiStatus { state: AuthState::SignedOut, message: Some(EXPIRED.into()), ..Default::default() }
-    } else {
-        GeminiStatus { state: AuthState::SignedOut, message: Some("Not signed in.".into()), ..Default::default() }
+pub fn parse_models(output: &str) -> Vec<GeminiModel> {
+    let mut models = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (id, label) = if let Some((id, label)) = line.split_once('\t') {
+            (id.trim(), label.trim())
+        } else if let Some((id, label)) = line.split_once(char::is_whitespace) {
+            (id.trim(), label.trim())
+        } else {
+            (line, line)
+        };
+        if id.ends_with(':') || id.eq_ignore_ascii_case("fetching") || id.eq_ignore_ascii_case("available") || id.eq_ignore_ascii_case("usage") {
+            continue;
+        }
+        if !id.is_empty() {
+            models.push(GeminiModel {
+                id: id.to_string(),
+                label: if label.is_empty() { id.to_string() } else { label.to_string() },
+                description: Some(id.to_string()),
+            });
+        }
+    }
+    models
+}
+
+pub fn fetch_models() -> Vec<GeminiModel> {
+    let Ok(mut cmd) = command() else {
+        return Vec::new();
     };
-    set(app, status);
+    cmd.arg("models");
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            paths::log(format!("gemini models spawn failed: {e}"));
+            return Vec::new();
+        }
+    };
+    let stdout = child.stdout.take();
+    let status = match wait_for(&mut child, MODELS_TIMEOUT) {
+        Ok(s) => s,
+        Err(e) => {
+            paths::log(format!("gemini models failed: {e}"));
+            return Vec::new();
+        }
+    };
+    if !status.success() {
+        paths::log(format!("gemini models exited with {status}"));
+        return Vec::new();
+    }
+    let Some(mut out) = stdout else {
+        return Vec::new();
+    };
+    let mut buf = String::new();
+    if out.read_to_string(&mut buf).is_err() {
+        return Vec::new();
+    }
+    parse_models(&buf)
+}
+
+fn check(app: &AppHandle) {
+    if exe().is_none() {
+        set(app, GeminiStatus { state: AuthState::NotInstalled, message: Some("Antigravity CLI isn't installed.".into()), ..Default::default() });
+        return;
+    }
+    if !signed_in() {
+        set(app, GeminiStatus { state: AuthState::SignedOut, message: Some("Not signed in.".into()), ..Default::default() });
+        return;
+    }
+    if app.state::<Gemini>().auth_failed.load(Ordering::SeqCst) {
+        set(app, GeminiStatus { state: AuthState::SignedOut, message: Some(EXPIRED.into()), ..Default::default() });
+        return;
+    }
+    let prev_models = app.state::<Gemini>().status.lock().unwrap().models.clone();
+    set(app, GeminiStatus { state: AuthState::SignedIn, account: account(), models: prev_models.clone(), ..Default::default() });
+
+    let models = fetch_models();
+    if !models.is_empty() || prev_models.is_empty() {
+        set(app, GeminiStatus { state: AuthState::SignedIn, account: account(), models, ..Default::default() });
+    }
 }
 
 fn install(app: &AppHandle) {
@@ -309,4 +391,41 @@ pub fn gemini_logout(app: AppHandle) {
 #[tauri::command]
 pub fn gemini_install(app: AppHandle) {
     std::thread::spawn(move || exclusive(&app, || install(&app)));
+}
+
+#[tauri::command(async)]
+pub async fn gemini_models(app: AppHandle) -> Vec<GeminiModel> {
+    let existing = app.state::<Gemini>().status.lock().unwrap().models.clone();
+    if !existing.is_empty() {
+        return existing;
+    }
+    if !signed_in() {
+        return Vec::new();
+    }
+    let models = tauri::async_runtime::spawn_blocking(fetch_models).await.unwrap_or_default();
+    if !models.is_empty() {
+        let g = app.state::<Gemini>();
+        let mut cur = g.status.lock().unwrap();
+        cur.models = models.clone();
+        let snap = cur.clone();
+        drop(cur);
+        let _ = app.emit("gemini", snap);
+    }
+    models
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_agy_models() {
+        let sample = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\r\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\r\n";
+        let parsed = parse_models(sample);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].id, "gemini-3.8-flash-high");
+        assert_eq!(parsed[0].label, "Gemini 3.8 Flash (High)");
+        assert_eq!(parsed[1].id, "claude-sonnet-4-6");
+        assert_eq!(parsed[1].label, "Claude Sonnet 4.6 (Thinking)");
+    }
 }

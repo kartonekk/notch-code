@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AgentEvent, AgentMode, AgentStatus, api, Denied, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon } from "./api";
+import { AgentEvent, AgentMode, AgentStatus, api, Denied, GeminiModel, GeminiStatus, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon } from "./api";
 import { Markdown } from "./Markdown";
 import { parseUsageReport, UsageCard } from "./Usage";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
@@ -174,11 +174,13 @@ export const MODELS: { id: string; label: string; title: string }[] = [
   { id: "haiku", label: "Haiku", title: "Latest Haiku: fastest, lightest on the limit" },
 ];
 
-/** handled by the app itself, not sent to Claude */
-const LOCAL_COMMANDS: SlashCommand[] = [
-  { name: "clear", description: "Start a new conversation (Ctrl+N)", hint: null, source: "notch" },
-  { name: "model", description: `Switch the model: ${MODELS.map((m) => m.label.toLowerCase()).join(", ")}`, hint: "[model]", source: "notch" },
+export const DEFAULT_GEMINI_MODELS: { id: string; label: string; title: string }[] = [
+  { id: "", label: "Default", title: "Whatever Antigravity CLI uses by default" },
+  { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", title: "Gemini 3.8 Flash with high reasoning effort" },
+  { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", title: "Gemini 3.8 Flash with medium reasoning effort" },
+  { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", title: "Gemini 3.8 Flash with low reasoning effort" },
 ];
+
 
 /** `c`'s name (or the part after "plugin:") starts with `query` */
 function namedLike(c: SlashCommand, query: string) {
@@ -239,6 +241,7 @@ export function useAgents(expanded: boolean, viewing: number | null) {
     return m === "plan" || m === "acceptEdits" ? m : "reckless";
   });
   const [model, setModelState] = useState(() => store.get("agent.model") ?? "");
+  const [geminiModel, setGeminiModelState] = useState(() => store.get("agent.gemini_model") ?? "");
   const [error, setError] = useState<string | null>(null);
   /** a short-lived line for the collapsed notch: a long step finished, a spoken prompt went out */
   const [flash, setFlashState] = useState<AgentNotice | null>(null);
@@ -252,8 +255,8 @@ export function useAgents(expanded: boolean, viewing: number | null) {
   flashRef.current = showFlash;
 
   // the event listener is registered once; it reads current values through this
-  const live = useRef({ expanded, viewing, mode, model, queues, status });
-  live.current = { expanded, viewing, mode, model, queues, status };
+  const live = useRef({ expanded, viewing, mode, model, geminiModel, queues, status });
+  live.current = { expanded, viewing, mode, model, geminiModel, queues, status };
 
   const call = (p: Promise<unknown>) => {
     setError(null);
@@ -269,7 +272,7 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       }),
       on<AgentEvent>("agent", (e) => {
         setFeeds((prev) => ({ ...prev, [e.sid]: applyEvent(prev[e.sid] ?? [], e) }));
-        const { expanded, viewing, mode, model, queues, status } = live.current;
+        const { expanded, viewing, mode, model, geminiModel, queues, status } = live.current;
         const project = status?.sessions.find((s) => s.id === e.sid)?.project ?? "";
         if (e.kind === "step_done" && e.duration_ms >= LONG_STEP_MS) {
           flashRef.current({
@@ -296,7 +299,9 @@ export function useAgents(expanded: boolean, viewing: number | null) {
           const back = [...handed, ...queued];
           if (back.length > 0) setRestored((prev) => ({ ...prev, [e.sid]: [...(prev[e.sid] ?? []), ...back] }));
         } else if (next.length > 0) {
-          call(api.agentSend(e.sid, next.join("\n\n"), mode, [], model || null));
+          const s = status?.sessions.find((sess) => sess.id === e.sid);
+          const chosenModel = s?.provider === "gemini" ? geminiModel : model;
+          call(api.agentSend(e.sid, next.join("\n\n"), mode, [], chosenModel || null));
         }
       }),
     ];
@@ -337,6 +342,7 @@ export function useAgents(expanded: boolean, viewing: number | null) {
     running: sessions.filter((s) => s.running),
     mode,
     model,
+    geminiModel,
     limit,
     /** how much of the plan is used (Claude Code's `/usage`) */
     usage: status?.usage ?? null,
@@ -353,13 +359,19 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       setModelState(m);
       store.set("agent.model", m);
     },
+    setGeminiModel: (m: string) => {
+      setGeminiModelState(m);
+      store.set("agent.gemini_model", m);
+    },
     /** sends now; while Claude works it gets it at its next step (or right after, if it's already answering; a /command always waits) */
     send: (sid: number, prompt: string, allow: string[] = []) => {
       const text = prompt.trim();
       if (!text) return;
-      const busy = (id: number) => !!live.current.status?.sessions.find((s) => s.id === id)?.running;
-      if (!busy(sid)) {
-        call(api.agentSend(sid, text, mode, allow, model || null));
+      const s = live.current.status?.sessions.find((sess) => sess.id === sid);
+      const chosenModel = s?.provider === "gemini" ? live.current.geminiModel : live.current.model;
+      const busy = !!s?.running;
+      if (!busy) {
+        call(api.agentSend(sid, text, mode, allow, chosenModel || null));
         return;
       }
       if (isCommand(text)) {
@@ -368,8 +380,8 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       }
       api.agentInject(sid, text).catch(() => {
         // Claude isn't taking messages anymore: next in line, or now if it has already finished
-        if (busy(sid)) setQueues((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), text] }));
-        else call(api.agentSend(sid, text, live.current.mode, allow, live.current.model || null));
+        if (busy) setQueues((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), text] }));
+        else call(api.agentSend(sid, text, live.current.mode, allow, chosenModel || null));
       });
     },
     /** messages to put back into the chat bar (after a stop); taking them clears them */
@@ -443,7 +455,19 @@ const SUGGESTIONS = [
 
 const CYCLE: AgentMode[] = MODES.map((m) => m.id);
 
-export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; session: SessionStatus; voice: Voice; onHold: (hold: boolean) => void }) {
+export function CodeTab({
+  agents,
+  session,
+  voice,
+  gemini: geminiStatus,
+  onHold,
+}: {
+  agents: Agents;
+  session: SessionStatus;
+  voice: Voice;
+  gemini?: GeminiStatus | null;
+  onHold: (hold: boolean) => void;
+}) {
   const sid = session.id;
   const items = agents.feed(sid);
   const queue = agents.queue(sid);
@@ -453,6 +477,39 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   const draftKey = `agent.draft.${session.project}`;
   const [draft, setDraft] = useState(() => store.get(draftKey) ?? "");
   const [modelOpen, setModelOpen] = useState(false);
+  const [geminiModels, setGeminiModels] = useState<GeminiModel[]>(() => geminiStatus?.models ?? []);
+  useEffect(() => {
+    if (geminiStatus?.models && geminiStatus.models.length > 0) {
+      setGeminiModels(geminiStatus.models);
+    } else if (gemini) {
+      api.geminiModels().then((m) => {
+        if (m.length > 0) setGeminiModels(m);
+      }).catch(() => {});
+    }
+  }, [geminiStatus?.models, gemini]);
+
+  const availableModels = useMemo(() => {
+    if (!gemini) return MODELS;
+    const list: { id: string; label: string; title: string }[] = [
+      { id: "", label: "Default", title: "Whatever Antigravity CLI uses by default" },
+    ];
+    if (geminiModels.length > 0) {
+      for (const m of geminiModels) {
+        list.push({
+          id: m.id,
+          label: m.label,
+          title: m.description || m.id,
+        });
+      }
+      return list;
+    }
+    return DEFAULT_GEMINI_MODELS;
+  }, [gemini, geminiModels]);
+
+  const currentModelId = gemini ? agents.geminiModel : agents.model;
+  const currentModelObj = availableModels.find((m) => m.id === currentModelId);
+  const currentModelLabel = currentModelObj ? currentModelObj.label : (currentModelId || "Default");
+
   const [focused, setFocused] = useState(false);
   const [scrolledUp, setScrolledUp] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -473,9 +530,18 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
   const slashOn = slashQuery != null && focused && !slashDismissed;
   const slashMatches = useMemo(() => {
     if (slashQuery == null || !slashOn) return [];
-    const local = new Set(LOCAL_COMMANDS.map((c) => c.name));
-    return matchCommands([...LOCAL_COMMANDS, ...commands.filter((c) => !local.has(c.name))], slashQuery);
-  }, [slashOn, slashQuery, commands]);
+    const localCommands: SlashCommand[] = [
+      { name: "clear", description: "Start a new conversation (Ctrl+N)", hint: null, source: "notch" },
+      {
+        name: "model",
+        description: `Switch the model: ${availableModels.map((m) => m.label.toLowerCase()).join(", ")}`,
+        hint: "[model]",
+        source: "notch",
+      },
+    ];
+    const local = new Set(localCommands.map((c) => c.name));
+    return matchCommands([...localCommands, ...commands.filter((c) => !local.has(c.name))], slashQuery);
+  }, [slashOn, slashQuery, commands, availableModels]);
   useEffect(() => {
     if (slashOn) api.agentCommands(sid).then(setCommands).catch(() => setCommands([]));
   }, [slashOn, sid]);
@@ -555,9 +621,13 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
       if (!running) agents.newChat(sid);
     } else if (name === "model") {
       const want = arg.trim().toLowerCase();
-      const known = MODELS.find((x) => x.id === want || x.label.toLowerCase() === want);
+      const known = availableModels.find((x) => x.id.toLowerCase() === want || x.label.toLowerCase() === want);
       if (!want) setModelOpen(true);
-      else agents.setModel(known ? known.id : arg.trim());
+      else {
+        const chosen = known ? known.id : arg.trim();
+        if (gemini) agents.setGeminiModel(chosen);
+        else agents.setModel(chosen);
+      }
     } else return false;
     return true;
   };
@@ -899,34 +969,37 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
             </span>
           )}
 
-          {gemini ? (
-            <span className="agent-badge is-gemini" title={`Gemini (Antigravity CLI)${session.model ? ` — ${session.model}` : ""}. Switch the agent in the folder menu above.`}>
-              Gemini{session.model ? ` · ${session.model.replace(/^gemini-/, "")}` : ""}
-            </span>
-          ) : (
-          <div className="model">
+          <div className={`model ${gemini ? "is-gemini" : ""}`}>
             <button
               type="button"
-              className={`model-btn ${modelOpen ? "open" : ""}`}
-              title={`Model${session.model ? ` — last run: ${session.model}` : ""}`}
-              onClick={() => setModelOpen(!modelOpen)}
+              className={`model-btn ${gemini ? "is-gemini" : ""} ${modelOpen ? "open" : ""}`}
+              title={`${agentName} model${session.model ? ` — last run: ${session.model}` : ""}`}
+              onClick={() => {
+                if (gemini && geminiModels.length === 0) {
+                  api.geminiModels().then((m) => {
+                    if (m.length > 0) setGeminiModels(m);
+                  }).catch(() => {});
+                }
+                setModelOpen(!modelOpen);
+              }}
             >
-              <span className="model-dot" />
-              <span className="model-name">{MODELS.find((m) => m.id === agents.model)?.label ?? agents.model}</span>
+              <span className={`model-dot ${gemini ? "is-gemini" : ""}`} />
+              <span className="model-name">{currentModelLabel}</span>
               <ChevronIcon open={!modelOpen} />
             </button>
             {modelOpen && (
               <>
                 <div className="menu-scrim" onClick={() => setModelOpen(false)} />
                 <div className="menu menu-up menu-right" role="menu">
-                  {MODELS.map((m) => (
+                  {availableModels.map((m) => (
                     <button
                       key={m.id}
                       type="button"
-                      className={`menu-item ${m.id === agents.model ? "is-current" : ""}`}
+                      className={`menu-item ${m.id === currentModelId ? "is-current" : ""}`}
                       role="menuitem"
                       onClick={() => {
-                        agents.setModel(m.id);
+                        if (gemini) agents.setGeminiModel(m.id);
+                        else agents.setModel(m.id);
                         setModelOpen(false);
                         inputRef.current?.focus();
                       }}
@@ -939,7 +1012,6 @@ export function CodeTab({ agents, session, voice, onHold }: { agents: Agents; se
               </>
             )}
           </div>
-          )}
         </div>
       </form>
     </div>

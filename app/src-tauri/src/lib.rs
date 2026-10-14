@@ -541,6 +541,7 @@ pub fn run() {
             gemini::gemini_login,
             gemini::gemini_logout,
             gemini::gemini_install,
+            gemini::gemini_models,
             media::media_status,
             media::media_control,
             settings_get,

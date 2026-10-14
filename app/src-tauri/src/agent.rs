@@ -994,8 +994,9 @@ fn start_gemini(app: &AppHandle, sid: u64, prompt: &str, mode: &str, model: Opti
     if let Some(id) = &session {
         cmd.args(["--conversation", id]);
     }
-    // Claude's model names mean nothing to Gemini
-    if let Some(m) = model.filter(|m| m.starts_with("gemini")) {
+    // Claude's internal model aliases mean nothing to Gemini
+    const CLAUDE_ALIASES: [&str; 4] = ["fable", "opus", "sonnet", "haiku"];
+    if let Some(m) = model.filter(|m| !m.is_empty() && !CLAUDE_ALIASES.contains(m)) {
         cmd.args(["--model", m]);
     }
     cmd.arg("--print").arg(prompt);
