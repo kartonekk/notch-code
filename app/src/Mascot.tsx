@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Status, store } from "./ui";
 
@@ -13,17 +13,48 @@ export type MascotId = "none" | "notchy" | "bitwing" | "hoot" | "fen" | "jelly" 
 const KEY = "mascot";
 const DEFAULT: MascotId = "notchy";
 
+/** everyone showing the mascot (the notch, Home, Settings) hears about a new pick */
+const listeners = new Set<(id: MascotId) => void>();
+
 /** the chosen skin, kept in localStorage */
 export function useMascot() {
   const [id, setId] = useState<MascotId>(() => {
     const saved = store.get(KEY) as MascotId | null;
     return saved && (saved === "none" || saved in ART) ? saved : DEFAULT;
   });
+  useEffect(() => {
+    listeners.add(setId);
+    return () => {
+      listeners.delete(setId);
+    };
+  }, []);
   const set = (next: MascotId) => {
-    setId(next);
     store.set(KEY, next);
+    listeners.forEach((l) => l(next));
   };
   return [id, set] as const;
+}
+
+/**
+ * The mascot hanging under the collapsed notch while an agent works: it comes
+ * out from behind the notch's lower edge, dangles, and pulls back up when the
+ * work is done (or the notch opens). Each skin has its own way in and its own
+ * idle motion (notch.css, `.skin-<id>`): `drop` hides it and pulls it back,
+ * `pop` is the entrance, `swing` the dangling.
+ */
+export function NotchMascot({ id, out, status }: { id: MascotId; out: boolean; status: Status }) {
+  if (id === "none") return null;
+  return (
+    <div className={`notch-mascot skin-${id} ${out ? "is-out" : ""}`} aria-hidden>
+      <div className="notch-mascot-drop">
+        <div className="notch-mascot-pop">
+          <div className="notch-mascot-swing">
+            <Mascot id={id} status={status} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** The mascot in its little screen tile; nothing when the skin is "none". */
@@ -95,9 +126,9 @@ const ART: Record<Exclude<MascotId, "none">, ReactNode> = {
       </g>
       <circle cx="74" cy="60" r="7" className="acc" opacity="0.45" />
       <circle cx="166" cy="60" r="7" className="acc" opacity="0.45" />
-      <rect x="107" y="60" width="6" height="16" rx="3" fill="#f5f6f8" className="bar" />
-      <rect x="117" y="56" width="6" height="24" rx="3" fill="#f5f6f8" className="bar d2" />
-      <rect x="127" y="60" width="6" height="16" rx="3" fill="#f5f6f8" className="bar d4" />
+      <rect x="107" y="60" width="6" height="16" rx="3" fill="#f5f6f8" className="eq" />
+      <rect x="117" y="56" width="6" height="24" rx="3" fill="#f5f6f8" className="eq d2" />
+      <rect x="127" y="60" width="6" height="16" rx="3" fill="#f5f6f8" className="eq d4" />
     </g>
   ),
 
@@ -217,12 +248,12 @@ const ART: Record<Exclude<MascotId, "none">, ReactNode> = {
       <circle cx="186" cy="176" r="3" fill="none" stroke="rgba(255,255,255,0.4)" className="bubble b2" />
       <circle cx="196" cy="206" r="5" fill="none" stroke="rgba(255,255,255,0.4)" className="bubble b3" />
       <g className="float">
-        <rect x="71" y="96" width="9" height="34" rx="4.5" className="acc bar top" opacity="0.85" />
-        <rect x="87" y="96" width="9" height="62" rx="4.5" className="acc bar top d1" opacity="0.85" />
-        <rect x="103" y="96" width="9" height="86" rx="4.5" className="acc bar top d2" opacity="0.85" />
-        <rect x="119" y="96" width="9" height="70" rx="4.5" className="acc bar top d3" opacity="0.85" />
-        <rect x="135" y="96" width="9" height="50" rx="4.5" className="acc bar top d4" opacity="0.85" />
-        <rect x="151" y="96" width="9" height="30" rx="4.5" className="acc bar top d5" opacity="0.85" />
+        <rect x="71" y="96" width="9" height="34" rx="4.5" className="acc eq top" opacity="0.85" />
+        <rect x="87" y="96" width="9" height="62" rx="4.5" className="acc eq top d1" opacity="0.85" />
+        <rect x="103" y="96" width="9" height="86" rx="4.5" className="acc eq top d2" opacity="0.85" />
+        <rect x="119" y="96" width="9" height="70" rx="4.5" className="acc eq top d3" opacity="0.85" />
+        <rect x="135" y="96" width="9" height="50" rx="4.5" className="acc eq top d4" opacity="0.85" />
+        <rect x="151" y="96" width="9" height="30" rx="4.5" className="acc eq top d5" opacity="0.85" />
         <path
           d="M58 100 C58 34 182 34 182 100 Q172 109 162 100 Q152 109 141 100 Q130 109 120 100 Q110 109 99 100 Q88 109 78 100 Q68 109 58 100 Z"
           fill="url(#mascot-jelly-bell)"
@@ -282,11 +313,11 @@ const ART: Record<Exclude<MascotId, "none">, ReactNode> = {
       <rect x="72" y="54" width="96" height="62" rx="13" fill="#050608" />
       <path d="M88 68 l11 9 -11 9" className="acc-s" strokeWidth="4.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       <rect x="128" y="82" width="22" height="5" rx="2.5" className="acc cursor" />
-      <rect x="104" y="98" width="4" height="10" rx="2" fill="#f5f6f8" className="bar" />
-      <rect x="111" y="96" width="4" height="14" rx="2" fill="#f5f6f8" className="bar d2" />
-      <rect x="118" y="94" width="4" height="18" rx="2" fill="#f5f6f8" className="bar d4" />
-      <rect x="125" y="96" width="4" height="14" rx="2" fill="#f5f6f8" className="bar d1" />
-      <rect x="132" y="98" width="4" height="10" rx="2" fill="#f5f6f8" className="bar d3" />
+      <rect x="104" y="98" width="4" height="10" rx="2" fill="#f5f6f8" className="eq" />
+      <rect x="111" y="96" width="4" height="14" rx="2" fill="#f5f6f8" className="eq d2" />
+      <rect x="118" y="94" width="4" height="18" rx="2" fill="#f5f6f8" className="eq d4" />
+      <rect x="125" y="96" width="4" height="14" rx="2" fill="#f5f6f8" className="eq d1" />
+      <rect x="132" y="98" width="4" height="10" rx="2" fill="#f5f6f8" className="eq d3" />
       <path d="M84 146 Q62 158 64 180" stroke="#3a3d46" strokeWidth="9" fill="none" strokeLinecap="round" />
       <circle cx="64" cy="184" r="8" fill="#d97757" />
       <g className="wavearm">
@@ -380,9 +411,9 @@ const ART: Record<Exclude<MascotId, "none">, ReactNode> = {
       <path d="M108 186 v8 M114 186 v8 M126 186 v8 M132 186 v8" stroke="#9398a1" strokeWidth="3.5" strokeLinecap="round" />
       <rect x="40" y="190" width="160" height="22" rx="11" fill="#000" stroke="rgba(255,255,255,0.08)" />
       <circle cx="56" cy="201" r="4.5" className="acc glow" />
-      <rect x="170" y="197" width="4" height="8" rx="2" fill="#f5f6f8" className="bar" />
-      <rect x="177" y="195" width="4" height="12" rx="2" fill="#f5f6f8" className="bar d2" />
-      <rect x="184" y="197" width="4" height="8" rx="2" fill="#f5f6f8" className="bar d4" />
+      <rect x="170" y="197" width="4" height="8" rx="2" fill="#f5f6f8" className="eq" />
+      <rect x="177" y="195" width="4" height="12" rx="2" fill="#f5f6f8" className="eq d2" />
+      <rect x="184" y="197" width="4" height="8" rx="2" fill="#f5f6f8" className="eq d4" />
     </>
   ),
 };

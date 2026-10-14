@@ -4,6 +4,7 @@ import { api, AppStatus, ClaudeStatus, GeminiUsage, Limit, on, Provider, PROVIDE
 import { Agents, AgentNotice, CodeTab, stepTime, useAgents } from "./CodeTab";
 import { Home, homePills } from "./Home";
 import { useMedia } from "./Media";
+import { NotchMascot, useMascot } from "./Mascot";
 import { Settings, useGemini } from "./Settings";
 import { geminiReport, UsageCard } from "./Usage";
 import { useVoice, voiceLine } from "./Voice";
@@ -87,6 +88,7 @@ export default function App() {
   const voice = useVoice();
   const gemini = useGemini();
   const media = useMedia();
+  const [mascot] = useMascot();
   const rec = useTranscription(status, expanded && view === "transcribe");
   const { recording, paused, phase } = rec;
   const sessions = agents.sessions;
@@ -405,6 +407,9 @@ export default function App() {
         onPointerEnter={() => (overNotch.current = true)}
         onPointerLeave={() => (overNotch.current = false)}
       >
+        {/* drops out from behind the collapsed notch while an agent works; review pills take its spot */}
+        <NotchMascot id={mascot} out={!expanded && working && pills === 0} status={barStatus} />
+
         <div className="island-clip">
           {/* ---------- collapsed bar ---------- */}
           <div className="bar" onPointerEnter={() => !expanded && onEnter()}>

@@ -3396,12 +3396,12 @@ button.limit-chip.is-gemini.open {
 .mascot .bob {
   animation: mascot-bob 1.2s ease-in-out infinite;
 }
-.mascot .bar {
+.mascot .eq {
   transform-box: fill-box;
   transform-origin: center;
   animation: mascot-bar 0.9s ease-in-out infinite;
 }
-.mascot .bar.top {
+.mascot .eq.top {
   transform-origin: 50% 0;
   animation-name: mascot-tentacle;
   animation-duration: 2.2s;
@@ -3655,6 +3655,421 @@ button.limit-chip.is-gemini.open {
 }
 .hero.has-mascot .hero-body {
   padding-right: 64px;
+}
+
+/* Under the collapsed notch while an agent works. The clip cuts at the notch's
+   lower edge, so the mascot comes out from behind it and goes back the same way.
+   `drop` hides it and pulls it back up, `pop` is the skin's entrance and `swing`
+   its dangling; each skin below has its own feel. */
+.notch-mascot {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 72px;
+  height: 66px;
+  margin-left: -36px;
+  pointer-events: none;
+  clip-path: polygon(-100% 0, 200% 0, 200% 300%, -100% 300%);
+}
+.notch-mascot-drop,
+.notch-mascot-pop,
+.notch-mascot-swing {
+  height: 100%;
+}
+.notch-mascot-drop {
+  transform: translateY(-110%);
+  visibility: hidden;
+  transition:
+    transform 280ms cubic-bezier(0.5, 0, 0.75, 0),
+    visibility 0s 280ms;
+}
+.notch-mascot.is-out .notch-mascot-drop {
+  transform: none;
+  visibility: visible;
+  transition: none;
+}
+.notch-mascot-pop {
+  transform-origin: 50% 0;
+}
+.notch-mascot-swing {
+  position: relative;
+  transform-origin: 50% 0;
+}
+.notch-mascot .mascot {
+  width: 100%;
+  height: 100%;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+/* tucked away: nothing keeps moving */
+.notch-mascot:not(.is-out) * {
+  animation-play-state: paused;
+}
+.notch-mascot.is-out .notch-mascot-pop {
+  animation: nm-drop 600ms var(--spring) both;
+}
+.notch-mascot.is-out .notch-mascot-swing {
+  animation: nm-sway 4s ease-in-out infinite;
+}
+@keyframes nm-drop {
+  from {
+    transform: translateY(-110%);
+  }
+}
+@keyframes nm-sway {
+  0%,
+  100% {
+    transform: rotate(-2.5deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+
+/* Notchy: a drop of the island itself drips off, stretches and wobbles; the art sways */
+.skin-notchy.is-out .notch-mascot-pop {
+  animation: nm-drip 900ms both;
+}
+.skin-notchy.is-out .notch-mascot-swing {
+  animation: none;
+}
+@keyframes nm-drip {
+  0% {
+    transform: translateY(-100%);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.6);
+  }
+  45% {
+    transform: translateY(0) scale(0.86, 1.22);
+    animation-timing-function: ease-out;
+  }
+  68% {
+    transform: scale(1.08, 0.9);
+  }
+  86% {
+    transform: scale(0.97, 1.04);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Bitwing: drops off its perch and swings like a pendulum until it settles */
+.skin-bitwing.is-out .notch-mascot-pop {
+  animation: nm-pendulum 1.3s both;
+}
+.skin-bitwing.is-out .notch-mascot-swing {
+  animation: none;
+}
+@keyframes nm-pendulum {
+  0% {
+    transform: translateY(-110%);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.9, 0.5);
+  }
+  28% {
+    transform: rotate(16deg);
+    animation-timing-function: ease-in-out;
+  }
+  50% {
+    transform: rotate(-11deg);
+    animation-timing-function: ease-in-out;
+  }
+  68% {
+    transform: rotate(6deg);
+    animation-timing-function: ease-in-out;
+  }
+  84% {
+    transform: rotate(-2.5deg);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Hoot: lowered on a swing seat (its perch on two cords) and rocks on it */
+.skin-hoot .notch-mascot-swing::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 5%;
+  left: 21%;
+  right: 21%;
+  border: solid rgba(200, 204, 210, 0.55);
+  border-width: 0 1.5px;
+}
+.skin-hoot.is-out .notch-mascot-pop {
+  animation: nm-lower 1s both;
+}
+.skin-hoot.is-out .notch-mascot-swing {
+  animation: nm-rock 2.8s ease-in-out infinite;
+}
+@keyframes nm-lower {
+  0% {
+    transform: translateY(-110%);
+    animation-timing-function: ease-out;
+  }
+  50% {
+    transform: translateY(5%);
+    animation-timing-function: ease-in-out;
+  }
+  70% {
+    transform: translateY(-2%) rotate(-5deg);
+    animation-timing-function: ease-in-out;
+  }
+  86% {
+    transform: rotate(3deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes nm-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+
+/* Fen: peeks out halfway, makes sure it's safe, then climbs all the way down */
+.skin-fen.is-out .notch-mascot-pop {
+  animation: nm-peek 1.6s both;
+}
+.skin-fen.is-out .notch-mascot-swing {
+  animation-duration: 5.5s;
+}
+@keyframes nm-peek {
+  0% {
+    transform: translateY(-110%);
+    animation-timing-function: ease-out;
+  }
+  25%,
+  55% {
+    transform: translateY(-56%);
+    animation-timing-function: ease-in-out;
+  }
+  63% {
+    transform: translateY(-62%);
+    animation-timing-function: cubic-bezier(0.3, 1.4, 0.5, 1);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Jelly: drifts down slowly, its bell pulsing; the art floats on its own */
+.skin-jelly.is-out .notch-mascot-pop {
+  animation: nm-drift 1.8s both;
+}
+.skin-jelly.is-out .notch-mascot-swing {
+  animation: none;
+}
+@keyframes nm-drift {
+  0% {
+    transform: translateY(-110%);
+    animation-timing-function: ease-out;
+  }
+  30% {
+    transform: translateY(-50%) scale(1.07, 0.9);
+    animation-timing-function: ease-in-out;
+  }
+  58% {
+    transform: translateY(-12%) scale(0.95, 1.06);
+    animation-timing-function: ease-in-out;
+  }
+  80% {
+    transform: translateY(0) scale(1.02, 0.98);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Purr: pounces down, lands with a squash and a little bounce */
+.skin-purr .notch-mascot-pop {
+  transform-origin: 50% 100%;
+}
+.skin-purr.is-out .notch-mascot-pop {
+  animation: nm-pounce 650ms both;
+}
+.skin-purr.is-out .notch-mascot-swing {
+  animation-duration: 3s;
+}
+@keyframes nm-pounce {
+  0% {
+    transform: translateY(-110%);
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  50% {
+    transform: translateY(4%) scale(1.1, 0.86);
+    animation-timing-function: ease-out;
+  }
+  70% {
+    transform: translateY(-5%) scale(0.95, 1.06);
+    animation-timing-function: ease-in;
+  }
+  86% {
+    transform: scale(1.03, 0.97);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Prompt: let down on a winch, one notch at a time, then twitches like a machine */
+.skin-prompt .notch-mascot-drop {
+  transition:
+    transform 360ms steps(4, jump-start),
+    visibility 0s 360ms;
+}
+.skin-prompt.is-out .notch-mascot-pop {
+  animation: nm-drop 1s steps(6, jump-end) both;
+}
+.skin-prompt.is-out .notch-mascot-swing {
+  animation: nm-servo 2.4s steps(1) infinite;
+}
+@keyframes nm-servo {
+  0%,
+  100% {
+    transform: none;
+  }
+  25% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: none;
+  }
+  75% {
+    transform: rotate(2deg);
+  }
+}
+
+/* Whisper: fades through the notch with a wobble, flickers, and vanishes on the way back */
+.skin-whisper .notch-mascot-drop {
+  opacity: 0;
+  transition:
+    transform 400ms cubic-bezier(0.5, 0, 0.75, 0),
+    opacity 300ms,
+    visibility 0s 400ms;
+}
+.skin-whisper.is-out .notch-mascot-drop {
+  opacity: 1;
+}
+.skin-whisper.is-out .notch-mascot-pop {
+  animation: nm-phase 1.3s both;
+}
+.skin-whisper.is-out .notch-mascot-swing {
+  animation: nm-haunt 5s ease-in-out infinite;
+}
+@keyframes nm-phase {
+  0% {
+    transform: translateY(-75%) skewX(10deg);
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+  35% {
+    transform: translateY(-30%) skewX(-7deg);
+    opacity: 0.6;
+  }
+  65% {
+    transform: translateY(4%) skewX(4deg);
+  }
+  85% {
+    transform: skewX(-1.5deg);
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes nm-haunt {
+  0%,
+  100% {
+    opacity: 1;
+    transform: rotate(-2deg);
+  }
+  40% {
+    opacity: 0.72;
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+  60% {
+    opacity: 0.95;
+  }
+}
+
+/* Slo: takes its time, both ways; the art sways slowly on its own */
+.skin-slo .notch-mascot-drop {
+  transition:
+    transform 1s cubic-bezier(0.45, 0, 0.55, 1),
+    visibility 0s 1s;
+}
+.skin-slo.is-out .notch-mascot-pop {
+  animation: nm-drop 2.6s cubic-bezier(0.45, 0, 0.25, 1) both;
+}
+.skin-slo.is-out .notch-mascot-swing {
+  animation: none;
+}
+
+/* Echo: hops down, bouncing twice, then cocks its head side to side */
+.skin-echo .notch-mascot-pop {
+  transform-origin: 50% 100%;
+}
+.skin-echo.is-out .notch-mascot-pop {
+  animation: nm-hop 900ms both;
+}
+.skin-echo.is-out .notch-mascot-swing {
+  animation: nm-tilt 3.2s infinite;
+}
+@keyframes nm-hop {
+  0% {
+    transform: translateY(-110%);
+    animation-timing-function: ease-in;
+  }
+  38% {
+    transform: scale(1.08, 0.92);
+    animation-timing-function: ease-out;
+  }
+  56% {
+    transform: translateY(-16%);
+    animation-timing-function: ease-in;
+  }
+  72% {
+    transform: scale(1.04, 0.96);
+    animation-timing-function: ease-out;
+  }
+  84% {
+    transform: translateY(-5%);
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes nm-tilt {
+  0%,
+  30%,
+  100% {
+    transform: none;
+  }
+  36%,
+  55% {
+    transform: rotate(5deg);
+  }
+  62%,
+  80% {
+    transform: rotate(-4deg);
+  }
+  86% {
+    transform: none;
+  }
 }
 
 /* settings: a row of tiles; only the chosen and the hovered one move */
