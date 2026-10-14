@@ -8,7 +8,7 @@
 
 Fully local speech recognition · several Claude sessions at once · one small `.exe` for Windows
 
-<img src="docs/notch.svg" width="100%" alt="The collapsed island: idle with the sessions' colours, recording a meeting, Claude at work, done">
+<img src="docs/notch.svg" width="100%" alt="The collapsed island: idle with the sessions' colours, recording a meeting, Claude at work with Notchy the mascot hanging below, done">
 
 </div>
 
@@ -35,7 +35,7 @@ While something is going on, the bar widens to 440 px and a thin line in the sam
 
 Hover the island and it grows into a 640 px panel. Its height follows what it shows. The tab row holds the **overview** (Ctrl+H) and the **transcriber** (Ctrl+M). Next come one tab per Claude session in its own colour (Ctrl+1…9) and **+** for another folder (Ctrl+T). Ctrl+Tab cycles through them. On the right are the 5-hour limit, the voice switch, pin, and quit. The limit shows how much of the current session is used (e.g. "37% used"). It's read from Claude Code's own `/usage`, which runs locally and costs no tokens, after every reply and on each sign-in check. Hover it for the week's usage and the reset time.
 
-<img src="docs/overview.svg" width="100%" alt="The open island: a status card on the left with the session at work and its last steps, a grid of pills on the right">
+<img src="docs/overview.svg" width="100%" alt="The open island: a status card with the session at work, its last steps and Notchy, what's playing below it, and a grid of Claude and Gemini session pills on the right">
 
 The **overview** has two cards:
 
@@ -44,7 +44,7 @@ The **overview** has two cards:
 
 ## Claude Code
 
-<img src="docs/session.svg" width="100%" alt="A Claude session in Auto mode: your message, Claude's answer, one line per step, the step it's on, the chat bar, and the mode and model switches">
+<img src="docs/session.svg" width="100%" alt="A Claude session in Auto mode: your message, Claude's answer, steps landing one by one, the step it's on with its token count, a follow-up being typed, and the mode and model switches">
 
 - **Pick a folder, type, Enter.** Claude Code runs hidden in that folder. Every step is one plain line ("Editing App.tsx", "Running npm test"); click it for the command and its output. A "Started with N skills" line lists the skills Claude was given; it shows up again only when they change. Several folders can work at once, each in its own tab. Messages you write while Claude works go to it right away, and it reads them at its next step. A `/command` written then waits and runs once Claude finishes. If you stop Claude, everything you wrote for that run comes back into the chat bar.
 - **Modes** (Shift+Tab), switchable even while Claude works (it takes effect at once):
@@ -62,7 +62,7 @@ The **overview** has two cards:
 
 ## Transcribe
 
-<img src="docs/transcribe.svg" width="100%" alt="Live transcription: recording dot, source, App and Mic levels, timer, Pause and End on top, the transcript below">
+<img src="docs/transcribe.svg" width="100%" alt="Live transcription: recording dot, source, App and Mic levels, timer, Pause and End on top, the transcript below, each line arriving as a grey live guess first">
 
 Live meeting transcription (Webex, Teams, Zoom, browser…), fully local: nothing goes to the cloud.
 
