@@ -2123,10 +2123,14 @@ kbd,
   white-space: nowrap;
   font-weight: 500;
 }
-.run-time {
+.run-time,
+.run-tokens {
   color: var(--dim-2);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+.run-tokens {
+  flex: none;
 }
 .run-strip.is-auto {
   background: rgba(245, 165, 36, 0.07);

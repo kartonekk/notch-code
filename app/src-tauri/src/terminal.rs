@@ -81,7 +81,7 @@ pub fn shim_dir() -> Result<PathBuf, String> {
 }
 
 /// The user's button: a terminal in a session's folder.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_terminal(path: String) -> Result<(), String> {
     let dir = PathBuf::from(&path);
     if !dir.is_dir() {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { api, AppStatus, Media, Provider, PROVIDER_NAME, SessionStatus } from "./api";
 import type { View } from "./App";
@@ -50,18 +50,23 @@ export function Home({
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   useEffect(() => onHold(menu != null), [menu, onHold]);
   useEffect(() => () => onHold(false), [onHold]);
+  const menuRef = useRef<HTMLDivElement>(null);
   const openMenu = (e: MouseEvent, path: string) => {
     e.preventDefault();
     const box = homeRef.current?.getBoundingClientRect();
     if (!box) return;
-    const w = 220;
-    const h = 90;
-    setMenu({
-      path,
-      x: Math.max(0, Math.min(e.clientX - box.left, box.width - w)),
-      y: Math.max(0, Math.min(e.clientY - box.top, box.height - h)),
-    });
+    setMenu({ path, x: e.clientX - box.left, y: e.clientY - box.top });
   };
+  // the notch clips whatever sticks out of it: once the menu is laid out, move
+  // it up / left until all of it fits (measured, its height depends on the items)
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    const box = homeRef.current;
+    if (!menu || !el || !box) return;
+    const x = Math.max(0, Math.min(menu.x, box.clientWidth - el.offsetWidth));
+    const y = Math.max(0, Math.min(menu.y, box.clientHeight - el.offsetHeight));
+    if (x !== menu.x || y !== menu.y) setMenu({ ...menu, x, y });
+  }, [menu]);
   return (
     <div className="overview" ref={homeRef}>
       <div className="overview-left">
@@ -131,7 +136,7 @@ export function Home({
               setMenu(null);
             }}
           />
-          <div className="menu menu-context" role="menu" style={{ left: menu.x, top: menu.y }}>
+          <div ref={menuRef} className="menu menu-context" role="menu" style={{ left: menu.x, top: menu.y }}>
             {(["claude", "gemini"] as const).map((p) => (
               <button
                 key={p}

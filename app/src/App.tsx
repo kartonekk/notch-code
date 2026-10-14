@@ -258,6 +258,12 @@ export default function App() {
     if (expanded) api.setNotchSize(EXPANDED_W, expandedH);
   }, [expanded, expandedH]);
 
+  // the window never takes the keyboard by itself: the open notch borrows it, so
+  // typing and shortcuts work without a click first, and gives it back on close
+  useEffect(() => {
+    api.notchFocus(expanded).catch(() => {});
+  }, [expanded]);
+
   const keepOpen = pinned || hold || tabMenu || picking || rec.ending;
   const onEnter = () => {
     if (collapseTimer.current) window.clearTimeout(collapseTimer.current);
