@@ -551,6 +551,7 @@ pub fn run() {
             update::update_check,
             update::update_install,
             agent::agent_status,
+            agent::agent_refresh_usage,
             agent::agent_open,
             agent::agent_close,
             agent::agent_send,

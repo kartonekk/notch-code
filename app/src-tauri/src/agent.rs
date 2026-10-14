@@ -94,6 +94,8 @@ pub struct Usage {
     pub session: f64,
     /// Current week (all models), 0..1.
     pub week: Option<f64>,
+    /// The whole `/usage` report, as Claude Code wrote it.
+    pub report: String,
     /// Unix ms when it was read.
     pub at: u64,
 }
@@ -115,8 +117,8 @@ pub fn refresh_usage(app: &AppHandle) {
     std::thread::spawn(move || loop {
         while AGAIN.swap(false, Ordering::SeqCst) {
             let started = Instant::now();
-            if let Some((session, week)) = claude::find_cli().and_then(|cli| claude::usage(&cli)) {
-                update(&app, |i| i.usage = Some(Usage { session, week, at: now_ms() }));
+            if let Some((session, week, report)) = claude::find_cli().and_then(|cli| claude::usage(&cli)) {
+                update(&app, |i| i.usage = Some(Usage { session, week, report, at: now_ms() }));
             }
             std::thread::sleep(USAGE_EVERY.saturating_sub(started.elapsed()));
         }
@@ -1254,7 +1256,9 @@ fn finish(app: &AppHandle, sid: u64, run: u64, result: Result<Outcome, String>, 
         tokens,
     });
     // the reply used some of the plan
-    if !gemini {
+    if gemini {
+        gemini::refresh_usage(app);
+    } else {
         refresh_usage(app);
     }
 }
@@ -1272,6 +1276,17 @@ fn check_dir(path: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn agent_status(app: AppHandle) -> AgentStatus {
     snapshot(&app.state::<Agent>().inner.lock().unwrap())
+}
+
+/// `/usage` typed in the chat: answered from the last reading right away (no
+/// agent run, no waiting for one), and read again now.
+#[tauri::command]
+pub fn agent_refresh_usage(app: AppHandle, provider: String) {
+    if provider == "gemini" {
+        gemini::refresh_usage(&app);
+    } else {
+        refresh_usage(&app);
+    }
 }
 
 /// Opens a new session in `path` with `provider` (default: the chosen default agent); returns its id.

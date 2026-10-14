@@ -29,6 +29,9 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const LOGIN_POLL: Duration = Duration::from_millis(1500);
 const MODELS_TIMEOUT: Duration = Duration::from_secs(15);
+const USAGE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Don't ask `/usage` more often than this.
+const USAGE_EVERY: Duration = Duration::from_secs(20);
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 const EXPIRED: &str = "Gemini's sign-in has expired. Sign in again in Settings.";
 
@@ -46,11 +49,38 @@ pub struct GeminiStatus {
     /// The Google account it is signed in with.
     pub account: Option<String>,
     pub models: Vec<GeminiModel>,
+    /// How much of the plan is used, from Antigravity's `/usage` (while signed in).
+    pub usage: Option<GeminiUsage>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct GeminiUsage {
+    pub quotas: Vec<GeminiQuota>,
+    /// Unix ms when it was read.
+    pub at: u64,
+}
+
+/// One of the plan's limits. Models in a group share it.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct GeminiQuota {
+    /// "Gemini Models", "Claude and GPT models"
+    pub group: String,
+    /// "Gemini Flash, Gemini Pro"
+    pub models: Option<String>,
+    /// "Weekly Limit Remaining"
+    pub name: String,
+    /// "weekly", "daily", …
+    pub window: Option<String>,
+    /// 0..1
+    pub used: f64,
+    /// Unix ms when it refills.
+    pub resets_at: Option<u64>,
 }
 
 #[derive(Default)]
 pub struct Gemini {
     status: Mutex<GeminiStatus>,
+    usage: Mutex<Option<GeminiUsage>>,
     busy: AtomicBool,
     /// A run failed to authenticate although credentials are saved.
     auth_failed: AtomicBool,
@@ -125,9 +155,10 @@ pub fn signed_in() -> bool {
 
 // ---------------------------------------------------------------- state
 
-fn set(app: &AppHandle, status: GeminiStatus) {
+fn set(app: &AppHandle, mut status: GeminiStatus) {
     {
         let g = app.state::<Gemini>();
+        status.usage = if status.state == AuthState::SignedIn { g.usage.lock().unwrap().clone() } else { None };
         let mut cur = g.status.lock().unwrap();
         if cur.state != status.state {
             paths::log(format!("gemini: {:?}", status.state));
@@ -209,6 +240,92 @@ pub fn fetch_models() -> Vec<GeminiModel> {
     parse_models(&buf)
 }
 
+// ---------------------------------------------------------------- usage
+
+/// The plan's limits, from Antigravity's own `/usage`: print mode answers it
+/// without starting an agent turn (no quota spent, no conversation left behind).
+pub fn usage() -> Option<Vec<GeminiQuota>> {
+    let mut cmd = command().ok()?;
+    cmd.args(["--print", "/usage", "--output-format", "json"]);
+    if let Some(home) = dirs::home_dir() {
+        cmd.current_dir(home);
+    }
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stdout.read_to_string(&mut text);
+        text
+    });
+    let _ = wait_for(&mut child, USAGE_TIMEOUT);
+    let text = reader.join().unwrap_or_default();
+    let parsed = parse_usage(&text);
+    if parsed.is_none() {
+        paths::log(format!("gemini usage: unreadable: {}", text.lines().next().unwrap_or("").trim()));
+    }
+    parsed
+}
+
+/// `{"command":{"name":"usage","data":{"groups":[{"name","description","buckets":[…]}]}}}`
+pub fn parse_usage(text: &str) -> Option<Vec<GeminiQuota>> {
+    let groups = text.lines().rev().find_map(|l| {
+        let v: serde_json::Value = serde_json::from_str(l.trim()).ok()?;
+        v.pointer("/command/data/groups").and_then(|g| g.as_array()).cloned()
+    })?;
+    let str_of = |v: &serde_json::Value, key: &str| v.get(key).and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let mut quotas = Vec::new();
+    for group in &groups {
+        let name = str_of(group, "name").unwrap_or_else(|| "Models".into());
+        let models = str_of(group, "description").map(|d| d.trim_start_matches("Models within this group:").trim().to_string()).filter(|m| !m.is_empty());
+        for bucket in group.get("buckets").and_then(|b| b.as_array()).into_iter().flatten() {
+            // a used-up limit leaves the fraction out (0 is the default value)
+            let remaining = bucket.get("remaining_fraction").and_then(|f| f.as_f64()).unwrap_or(0.0);
+            let resets_at = str_of(bucket, "reset_time")
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok())
+                .map(|t| t.timestamp_millis().max(0) as u64);
+            quotas.push(GeminiQuota {
+                group: name.clone(),
+                models: models.clone(),
+                name: str_of(bucket, "name").unwrap_or_else(|| "Limit".into()),
+                window: str_of(bucket, "window"),
+                used: (1.0 - remaining).clamp(0.0, 1.0),
+                resets_at,
+            });
+        }
+    }
+    (!quotas.is_empty()).then_some(quotas)
+}
+
+/// Reads the plan usage again in the background (after a reply, on the sign-in
+/// check). Asks made while a read is under way get one more read after it.
+pub fn refresh_usage(app: &AppHandle) {
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    static AGAIN: AtomicBool = AtomicBool::new(false);
+    AGAIN.store(true, Ordering::SeqCst);
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        while AGAIN.swap(false, Ordering::SeqCst) {
+            let started = Instant::now();
+            if let Some(quotas) = signed_in().then(usage).flatten() {
+                let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                let g = app.state::<Gemini>();
+                *g.usage.lock().unwrap() = Some(GeminiUsage { quotas, at });
+                let cur = g.status.lock().unwrap().clone();
+                set(&app, cur);
+            }
+            std::thread::sleep(USAGE_EVERY.saturating_sub(started.elapsed()));
+        }
+        BUSY.store(false, Ordering::SeqCst);
+        // an ask that came in just now, after the last check
+        if !AGAIN.load(Ordering::SeqCst) || BUSY.swap(true, Ordering::SeqCst) {
+            break;
+        }
+    });
+}
+
 fn check(app: &AppHandle) {
     if exe().is_none() {
         set(app, GeminiStatus { state: AuthState::NotInstalled, message: Some("Antigravity CLI isn't installed.".into()), ..Default::default() });
@@ -224,6 +341,7 @@ fn check(app: &AppHandle) {
     }
     let prev_models = app.state::<Gemini>().status.lock().unwrap().models.clone();
     set(app, GeminiStatus { state: AuthState::SignedIn, account: account(), models: prev_models.clone(), ..Default::default() });
+    refresh_usage(app);
 
     let models = fetch_models();
     if !models.is_empty() || prev_models.is_empty() {
@@ -427,5 +545,19 @@ mod tests {
         assert_eq!(parsed[0].label, "Gemini 3.8 Flash (High)");
         assert_eq!(parsed[1].id, "claude-sonnet-4-6");
         assert_eq!(parsed[1].label, "Claude Sonnet 4.6 (Thinking)");
+    }
+
+    #[test]
+    fn parses_agy_usage() {
+        let sample = r#"{"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":0.25,"reset_time":"2026-10-21T07:47:06Z"}]},{"name":"Claude and GPT models","buckets":[{"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly"}]}]}}}"#;
+        let q = parse_usage(sample).unwrap();
+        assert_eq!(q.len(), 2);
+        assert_eq!(q[0].group, "Gemini Models");
+        assert_eq!(q[0].models.as_deref(), Some("Gemini Flash, Gemini Pro"));
+        assert_eq!(q[0].used, 0.75);
+        assert_eq!(q[0].resets_at, Some(1_792_568_826_000));
+        assert_eq!(q[1].used, 1.0);
+        assert_eq!(q[1].resets_at, None);
+        assert_eq!(parse_usage("jetski: no output produced"), None);
     }
 }

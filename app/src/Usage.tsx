@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { GeminiQuota } from "./api";
 
 // Claude Code's `/usage`, shown as a card instead of its plain text:
 //
@@ -24,6 +25,8 @@ export interface UsageMeter {
   resetsAt: number | null;
   /** how long the window is (5 hours, a week), when known */
   windowMs: number | null;
+  /** which models share it ("Gemini Flash, Gemini Pro") */
+  detail?: string | null;
 }
 
 export interface UsagePeriod {
@@ -35,6 +38,8 @@ export interface UsagePeriod {
 }
 
 export interface UsageReport {
+  /** whose plan: Claude's unless said otherwise */
+  provider?: "gemini";
   /** "your subscription" */
   using: string | null;
   meters: UsageMeter[];
@@ -81,6 +86,44 @@ export function parseUsageReport(text: string, now = Date.now()): UsageReport | 
   return report;
 }
 
+/** Antigravity CLI's `/usage` (and `/quota`) in print mode, one limit per line:
+ *
+ *   Gemini Models<TAB>Weekly Limit Remaining<TAB>22%<TAB>2026-10-21T07:47:06Z
+ *   Claude and GPT models<TAB>Weekly Limit Remaining<TAB>100%<TAB>2026-10-21T08:31:55Z
+ */
+export function parseGeminiUsage(text: string): UsageReport | null {
+  const quotas: GeminiQuota[] = [];
+  for (const line of text.split(/\r?\n/).filter((l) => l.trim())) {
+    const m = /^([^\t]+)\t([^\t]+)\t(\d+(?:\.\d+)?)%\t(\S+)$/.exec(line.trim());
+    if (!m) return null;
+    const [, group, name, pct, reset] = m;
+    const at = Date.parse(reset);
+    const window = /week/i.test(name) ? "weekly" : /dai|day/i.test(name) ? "daily" : null;
+    quotas.push({ group, models: null, name, window, used: 1 - Number(pct) / 100, resets_at: Number.isNaN(at) ? null : at });
+  }
+  return quotas.length > 0 ? geminiReport(quotas) : null;
+}
+
+const WINDOW_MS: Record<string, number> = { daily: 24 * HOUR, weekly: 7 * 24 * HOUR };
+
+/** Gemini's limits as a report, for the same card Claude's `/usage` gets */
+export function geminiReport(quotas: GeminiQuota[]): UsageReport {
+  return {
+    provider: "gemini",
+    using: "Antigravity CLI",
+    meters: quotas.map((q) => ({
+      label: q.window ? `${q.group} (${q.window})` : q.group,
+      used: Math.min(1, Math.max(0, q.used)),
+      resets: q.resets_at ? new Date(q.resets_at).toLocaleString() : null,
+      resetsAt: q.resets_at,
+      windowMs: q.window ? (WINDOW_MS[q.window.toLowerCase()] ?? null) : null,
+      detail: q.models,
+    })),
+    notes: ["Models in a group share one limit. Bigger models and longer tasks use it up faster."],
+    periods: [],
+  };
+}
+
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 /** "Oct 13, 5:30pm (Europe/Warsaw)" / "8am" → unix ms; null when it's another time zone or unreadable */
@@ -122,7 +165,8 @@ function splitLabel(label: string): [string, string | null] {
   return [m[1].charAt(0).toUpperCase() + m[1].slice(1), m[2]?.slice(1, -1) ?? null];
 }
 
-export function UsageCard({ report }: { report: UsageReport }) {
+/** `asOf` = unix ms of the reading, when it isn't fresh from the agent's answer */
+export function UsageCard({ report, asOf }: { report: UsageReport; asOf?: number }) {
   // the "resets in …" countdown
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -130,10 +174,16 @@ export function UsageCard({ report }: { report: UsageReport }) {
     return () => window.clearInterval(t);
   }, []);
   return (
-    <div className="usage-card">
+    <div className={`usage-card ${report.provider === "gemini" ? "is-gemini" : ""}`}>
       <div className="usage-head">
-        <span className="usage-title">Plan usage</span>
-        {report.using && <span className="usage-using">{report.using}</span>}
+        <span className="usage-title">{report.provider === "gemini" ? "Gemini plan usage" : "Plan usage"}</span>
+        {(report.using || asOf) && (
+          <span className="usage-using">
+            {[report.using, asOf && `updated ${new Date(asOf).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        )}
       </div>
       <div className="usage-meters">
         {report.meters.map((m) => (
@@ -172,6 +222,7 @@ function Meter({ meter, now }: { meter: UsageMeter; now: number }) {
           <small>%</small>
         </span>
       </div>
+      {meter.detail && <div className="usage-detail">{meter.detail}</div>}
       <div className="usage-bar">
         <i style={{ width: `${Math.min(100, pct)}%` }} />
         {pace != null && (

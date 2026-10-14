@@ -1,13 +1,14 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AgentEvent, AgentMode, AgentStatus, api, Denied, GeminiModel, GeminiStatus, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon } from "./api";
+import { AgentEvent, AgentMode, AgentStatus, api, Denied, GeminiModel, GeminiStatus, GeminiUsage, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon, Usage } from "./api";
 import { Markdown } from "./Markdown";
-import { parseUsageReport, UsageCard } from "./Usage";
+import { geminiReport, parseGeminiUsage, parseUsageReport, UsageCard } from "./Usage";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
 import {
   AlertIcon,
   basename,
+  capitalize,
   CheckIcon,
   ChevronIcon,
   CopyIcon,
@@ -31,6 +32,8 @@ export type FeedItem =
   /** the skills Claude started with (shown when they differ from the last run's) */
   | { type: "skills"; run: number; skills: string[] }
   | { type: "text"; run: number; text: string }
+  /** `/usage`, answered in the app from the last reading (no agent run) */
+  | { type: "usage"; run: number; provider: Provider }
   | {
       type: "step";
       run: number;
@@ -166,13 +169,54 @@ const MODES: { id: AgentMode; label: string; icon: StepIcon | "flame"; hint: str
   { id: "plan", label: "Plan", icon: "plan", hint: "Read-only, proposes a plan", title: "Read-only: Claude looks around and proposes a plan (Shift+Tab)" },
 ];
 
-export const MODELS: { id: string; label: string; title: string }[] = [
-  { id: "", label: "Default", title: "Whatever Claude Code uses by default" },
-  { id: "fable", label: "Fable", title: "Latest Fable" },
-  { id: "opus", label: "Opus", title: "Latest Opus: most capable" },
-  { id: "sonnet", label: "Sonnet", title: "Latest Sonnet: fast and capable" },
-  { id: "haiku", label: "Haiku", title: "Latest Haiku: fastest, lightest on the limit" },
+/** Claude's families, newest version of each as far as this build knows; runs that report a newer one update it. */
+export const CLAUDE_VERSIONS: Record<string, string> = { fable: "5.1", opus: "5.5", sonnet: "5.5", haiku: "5.5" };
+
+const CLAUDE_FAMILIES: { id: string; title: string }[] = [
+  { id: "fable", title: "Latest Fable" },
+  { id: "opus", title: "Latest Opus: most capable" },
+  { id: "sonnet", title: "Latest Sonnet: fast and capable" },
+  { id: "haiku", title: "Latest Haiku: fastest, lightest on the limit" },
 ];
+
+/** The aliases always run the newest of a family; the label says which one that is. */
+export function claudeModels(versions: Record<string, string>): { id: string; label: string; title: string }[] {
+  return [
+    { id: "", label: "Default", title: "Whatever Claude Code uses by default" },
+    ...CLAUDE_FAMILIES.map((f) => ({ id: f.id, label: `${capitalize(f.id)} ${versions[f.id] ?? ""}`.trim(), title: f.title })),
+  ];
+}
+
+/** "claude-opus-5-5[1m]" → ["opus", "5.5"]; "claude-3-5-sonnet-20241022" → ["sonnet", "3.5"] */
+export function claudeModel(id: string): [string, string] | null {
+  const m = /^claude-(fable|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id);
+  if (m) return [m[1].toLowerCase(), m[3] ? `${m[2]}.${m[3]}` : m[2]];
+  const old = /^claude-(\d+)(?:-(\d))?-(opus|sonnet|haiku)/i.exec(id);
+  return old ? [old[3].toLowerCase(), old[2] ? `${old[1]}.${old[2]}` : old[1]] : null;
+}
+
+/** "claude-opus-5-5[1m]" → "Opus 5.5 (1M)"; anything else as it is */
+export function claudeModelName(id: string) {
+  const m = claudeModel(id);
+  return m ? `${capitalize(m[0])} ${m[1]}${/\[1m\]/i.test(id) ? " (1M)" : ""}` : id;
+}
+
+/** "5.10" is newer than "5.9" */
+function newer(a: string, b: string) {
+  const [x, y] = [a, b].map((v) => v.split(".").map(Number));
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  return false;
+}
+
+function cachedVersions(): Record<string, string> {
+  try {
+    return { ...CLAUDE_VERSIONS, ...(JSON.parse(store.get("agent.claude_versions") ?? "{}") as Record<string, string>) };
+  } catch {
+    return { ...CLAUDE_VERSIONS };
+  }
+}
 
 export const DEFAULT_GEMINI_MODELS: { id: string; label: string; title: string }[] = [
   { id: "", label: "Default", title: "Whatever Antigravity CLI uses by default" },
@@ -242,6 +286,8 @@ export function useAgents(expanded: boolean, viewing: number | null) {
   });
   const [model, setModelState] = useState(() => store.get("agent.model") ?? "");
   const [geminiModel, setGeminiModelState] = useState(() => store.get("agent.gemini_model") ?? "");
+  /** newest Claude version of each family, as runs reported it */
+  const [claudeVersions, setClaudeVersions] = useState(cachedVersions);
   const [error, setError] = useState<string | null>(null);
   /** a short-lived line for the collapsed notch: a long step finished, a spoken prompt went out */
   const [flash, setFlashState] = useState<AgentNotice | null>(null);
@@ -315,6 +361,20 @@ export function useAgents(expanded: boolean, viewing: number | null) {
   }, [reported]);
   const limit = reported ?? cachedLimit();
 
+  // a run on a newer Claude than the dropdown knows: name it by that version from now on
+  const reportedModels = (status?.sessions ?? []).filter((s) => s.provider !== "gemini" && s.model).map((s) => s.model!).join(" ");
+  useEffect(() => {
+    const found: Record<string, string> = {};
+    for (const id of reportedModels.split(" ")) {
+      const m = claudeModel(id);
+      if (m && newer(m[1], found[m[0]] ?? claudeVersions[m[0]] ?? "0")) found[m[0]] = m[1];
+    }
+    if (Object.keys(found).length === 0) return;
+    const next = { ...claudeVersions, ...found };
+    setClaudeVersions(next);
+    store.set("agent.claude_versions", JSON.stringify(next));
+  }, [reportedModels]);
+
   // opening the notch shows the results: the "finished" look has done its job
   useEffect(() => {
     if (expanded) setNotices({});
@@ -343,6 +403,7 @@ export function useAgents(expanded: boolean, viewing: number | null) {
     mode,
     model,
     geminiModel,
+    claudeVersions,
     limit,
     /** how much of the plan is used (Claude Code's `/usage`) */
     usage: status?.usage ?? null,
@@ -368,6 +429,14 @@ export function useAgents(expanded: boolean, viewing: number | null) {
       const text = prompt.trim();
       if (!text) return;
       const s = live.current.status?.sessions.find((sess) => sess.id === sid);
+      // shown right away, even while the agent works: the app keeps the plan usage itself
+      if (/^\/usage$/i.test(text)) {
+        const provider = s?.provider ?? "claude";
+        const run = -Date.now();
+        setFeeds((prev) => ({ ...prev, [sid]: [...(prev[sid] ?? []), { type: "prompt", run, text }, { type: "usage", run, provider }] }));
+        api.agentRefreshUsage(provider).catch(() => {});
+        return;
+      }
       const chosenModel = s?.provider === "gemini" ? live.current.geminiModel : live.current.model;
       const busy = !!s?.running;
       if (!busy) {
@@ -489,7 +558,7 @@ export function CodeTab({
   }, [geminiStatus?.models, gemini]);
 
   const availableModels = useMemo(() => {
-    if (!gemini) return MODELS;
+    if (!gemini) return claudeModels(agents.claudeVersions);
     const list: { id: string; label: string; title: string }[] = [
       { id: "", label: "Default", title: "Whatever Antigravity CLI uses by default" },
     ];
@@ -504,7 +573,7 @@ export function CodeTab({
       return list;
     }
     return DEFAULT_GEMINI_MODELS;
-  }, [gemini, geminiModels]);
+  }, [gemini, geminiModels, agents.claudeVersions]);
 
   const currentModelId = gemini ? agents.geminiModel : agents.model;
   const currentModelObj = availableModels.find((m) => m.id === currentModelId);
@@ -757,6 +826,7 @@ export function CodeTab({
             <Feed
               items={items}
               running={running}
+              usage={{ claude: agents.usage, gemini: geminiStatus?.usage ?? null }}
               onAllow={(rules) => agents.send(sid, "Allowed. Please continue.", rules)}
               onRetry={() => lastPrompt && send(lastPrompt)}
             />
@@ -973,7 +1043,7 @@ export function CodeTab({
             <button
               type="button"
               className={`model-btn ${gemini ? "is-gemini" : ""} ${modelOpen ? "open" : ""}`}
-              title={`${agentName} model${session.model ? ` — last run: ${session.model}` : ""}`}
+              title={`${agentName} model${session.model ? ` — last run: ${gemini ? session.model : `${claudeModelName(session.model)} (${session.model})`}` : ""}`}
               onClick={() => {
                 if (gemini && geminiModels.length === 0) {
                   api.geminiModels().then((m) => {
@@ -1130,15 +1200,47 @@ function toRuns(items: FeedItem[]): Run[] {
   return runs;
 }
 
-function Feed({ items, running, onAllow, onRetry }: { items: FeedItem[]; running: boolean; onAllow: (rules: string[]) => void; onRetry: () => void }) {
+/** the last plan usage readings, for `/usage` answered in the app */
+interface PlanUsage {
+  claude: Usage | null;
+  gemini: GeminiUsage | null;
+}
+
+function Feed({
+  items,
+  running,
+  usage,
+  onAllow,
+  onRetry,
+}: {
+  items: FeedItem[];
+  running: boolean;
+  usage: PlanUsage;
+  onAllow: (rules: string[]) => void;
+  onRetry: () => void;
+}) {
   const runs = useMemo(() => toRuns(items), [items]);
   const last = runs[runs.length - 1];
   const thinking = running && !items.some((i) => i.type === "step" && i.state === "running");
+  // a `/usage` sent while the agent works splits its run in two: the second part gets its own key
+  const seen = new Map<number, number>();
   return (
     <>
-      {runs.map((r) => (
-        <RunBlock key={r.run} run={r} latest={r === last} canAct={!running && r === last} onAllow={onAllow} onRetry={onRetry} />
-      ))}
+      {runs.map((r) => {
+        const n = seen.get(r.run) ?? 0;
+        seen.set(r.run, n + 1);
+        return (
+          <RunBlock
+            key={n ? `${r.run}-${n}` : r.run}
+            run={r}
+            latest={r === last}
+            canAct={!running && r === last}
+            usage={usage}
+            onAllow={onAllow}
+            onRetry={onRetry}
+          />
+        );
+      })}
       {thinking && (
         <div className="thinking">
           <span className="mini-spinner" /> Thinking…
@@ -1149,7 +1251,21 @@ function Feed({ items, running, onAllow, onRetry }: { items: FeedItem[]; running
 }
 
 /** Older runs fold to their final answer; the steps are one click away. */
-function RunBlock({ run, latest, canAct, onAllow, onRetry }: { run: Run; latest: boolean; canAct: boolean; onAllow: (rules: string[]) => void; onRetry: () => void }) {
+function RunBlock({
+  run,
+  latest,
+  canAct,
+  usage,
+  onAllow,
+  onRetry,
+}: {
+  run: Run;
+  latest: boolean;
+  canAct: boolean;
+  usage: PlanUsage;
+  onAllow: (rules: string[]) => void;
+  onRetry: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const steps = run.body.filter((i) => i.type === "step").length;
   const texts = run.body.filter((i): i is Extract<FeedItem, { type: "text" }> => i.type === "text");
@@ -1174,6 +1290,7 @@ function RunBlock({ run, latest, canAct, onAllow, onRetry }: { run: Run; latest:
                 {row.item.type === "followup" && <Prompt text={row.item.text} />}
                 {row.item.type === "skills" && <SkillsRow skills={row.item.skills} />}
                 {row.item.type === "text" && <RichText text={row.item.text} />}
+                {row.item.type === "usage" && <LiveUsage provider={row.item.provider} usage={usage} />}
                 {row.item.type === "step" && <StepRow step={row.item} />}
               </Fragment>
             ),
@@ -1345,9 +1462,41 @@ function DoneRow({ done, canAct, onAllow, onRetry }: { done: Done; canAct: boole
   );
 }
 
-/** Claude's text, as Markdown; `/usage`'s report as a card. */
+/** Wait this long for a first reading before giving up. */
+const USAGE_WAIT_MS = 45_000;
+
+/** `/usage` answered on the spot from the last reading; it follows the fresh one when that arrives. */
+function LiveUsage({ provider, usage }: { provider: Provider; usage: PlanUsage }) {
+  const reading = provider === "gemini" ? usage.gemini : usage.claude;
+  const report = useMemo(() => {
+    if (provider === "gemini") return usage.gemini && usage.gemini.quotas.length > 0 ? geminiReport(usage.gemini.quotas) : null;
+    return usage.claude ? parseUsageReport(usage.claude.report) : null;
+  }, [provider, usage.claude, usage.gemini]);
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (reading) return;
+    const t = window.setTimeout(() => setGaveUp(true), USAGE_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [reading]);
+  if (!reading) {
+    return gaveUp ? (
+      <div className="answer">Couldn't read the plan usage. Check the sign-in in Settings.</div>
+    ) : (
+      <div className="thinking">
+        <span className="mini-spinner" /> Reading your plan usage…
+      </div>
+    );
+  }
+  return (
+    <div className="answer is-usage">
+      {report ? <UsageCard report={report} asOf={reading.at} /> : <Markdown text={usage.claude?.report ?? ""} />}
+    </div>
+  );
+}
+
+/** Claude's text, as Markdown; `/usage`'s report (Claude's or Gemini's) as a card. */
 function RichText({ text }: { text: string }) {
-  const usage = useMemo(() => parseUsageReport(text), [text]);
+  const usage = useMemo(() => parseUsageReport(text) ?? parseGeminiUsage(text), [text]);
   return (
     <div className={`answer ${usage ? "is-usage" : ""}`}>
       <CopyButton text={text} />

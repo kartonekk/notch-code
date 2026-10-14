@@ -485,8 +485,8 @@ fn probe(app: &AppHandle, cli: &Path) {
 
 /// How much of the plan is used, from the CLI's own `/usage` command: it runs
 /// locally (no model request, no tokens) and reads the account's usage.
-/// (current 5-hour session, current week), as 0..1.
-pub fn usage(cli: &Path) -> Option<(f64, Option<f64>)> {
+/// (current 5-hour session, current week) as 0..1, and the report as the CLI wrote it.
+pub fn usage(cli: &Path) -> Option<(f64, Option<f64>, String)> {
     let mut child = hidden(cli)
         .args(["-p", "--output-format", "text", "--no-session-persistence", "--strict-mcp-config"])
         .current_dir(paths::data_dir())
@@ -510,7 +510,7 @@ pub fn usage(cli: &Path) -> Option<(f64, Option<f64>)> {
     if parsed.is_none() {
         paths::log(format!("claude usage: unreadable: {}", text.lines().next().unwrap_or("").trim()));
     }
-    parsed
+    parsed.map(|(session, week)| (session, week, text.trim().to_string()))
 }
 
 /// "Current session: 37% used · resets …" / "Current week (all models): 42% used · …"

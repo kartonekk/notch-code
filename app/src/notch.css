@@ -741,6 +741,42 @@ kbd,
   color: var(--red-text);
   background: rgba(244, 80, 94, 0.14);
 }
+/* Gemini's: indigo like its model button, opens the full card */
+.limit-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.limit-chip.is-gemini {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+}
+.limit-chip.is-gemini .limit-meter i {
+  background: #818cf8;
+}
+button.limit-chip.is-gemini:hover,
+button.limit-chip.is-gemini.open {
+  background: rgba(99, 102, 241, 0.22);
+}
+.limit-chip.is-gemini.is-warn {
+  color: var(--amber-text);
+}
+.limit-chip.is-gemini.is-warn .limit-meter i {
+  background: var(--amber);
+}
+.limit-chip.is-gemini.is-error {
+  color: var(--red-text);
+  background: rgba(244, 80, 94, 0.14);
+}
+.usage-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 6;
+  width: 340px;
+  border-radius: 15px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  animation: menu-in 160ms var(--ease) both;
+}
 
 /* ---------------------------------------------------------------- banners */
 
@@ -1833,6 +1869,22 @@ kbd,
   font-size: 10.5px;
   line-height: 1.4;
   color: var(--dim-4);
+}
+/* which models share a limit */
+.usage-detail {
+  margin-top: -3px;
+  font-size: 10.5px;
+  color: var(--dim-3);
+}
+/* Gemini's /usage: same card, its indigo */
+.usage-card.is-gemini {
+  box-shadow: 0 8px 24px -14px rgba(99, 102, 241, 0.55);
+}
+.usage-card.is-gemini .usage-title::before {
+  background: #818cf8;
+}
+.usage-card.is-gemini .usage-meter:not(.is-warn):not(.is-error) {
+  --meter: #818cf8;
 }
 
 /* a step: one plain line, like the island's ticker */

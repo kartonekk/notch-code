@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { api, AppStatus, ClaudeStatus, Limit, on, Provider, PROVIDER_NAME, SessionStatus, UpdateStatus, Usage } from "./api";
+import { api, AppStatus, ClaudeStatus, GeminiUsage, Limit, on, Provider, PROVIDER_NAME, SessionStatus, UpdateStatus, Usage } from "./api";
 import { Agents, AgentNotice, CodeTab, stepTime, useAgents } from "./CodeTab";
 import { Home, homePills } from "./Home";
 import { useMedia } from "./Media";
 import { Settings, useGemini } from "./Settings";
+import { geminiReport, UsageCard } from "./Usage";
 import { useVoice, voiceLine } from "./Voice";
 import { PILL_STEP, PILL_WIDTH, ReviewPills, useReview } from "./Review";
 import { SPEAKER_LABEL, TranscribeTab, useTranscription } from "./TranscribeTab";
@@ -487,6 +488,7 @@ export default function App() {
                 />
                 <div className="header-actions">
                   {claude?.state === "signed_in" && current?.provider !== "gemini" && <LimitChip plan={claude.plan} limit={agents.limit} usage={agents.usage} />}
+                  {gemini?.state === "signed_in" && current?.provider === "gemini" && <GeminiLimitChip usage={gemini.usage} model={agents.geminiModel} />}
                   <IconButton
                     title={
                       voice.wake
@@ -836,6 +838,51 @@ function ProjectMenu({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * How much of Gemini's plan is used, from Antigravity's `/usage`: the limit of the
+ * chosen model's group (Gemini, or Claude and GPT) in the chip; a click shows them all.
+ */
+function GeminiLimitChip({ usage, model }: { usage: GeminiUsage | null; model: string }) {
+  const [open, setOpen] = useState(false);
+  const quotas = usage?.quotas ?? [];
+  const thirdParty = /^(claude|gpt)/i.test(model);
+  const quota = quotas.find((q) => /gemini/i.test(q.group) !== thirdParty) ?? quotas[0];
+  if (!quota) {
+    return (
+      <span className="chip limit-chip is-gemini" title="Gemini plan usage shows up once Antigravity CLI reports it">
+        Gemini
+      </span>
+    );
+  }
+  const pct = Math.min(100, Math.round(quota.used * 100));
+  const tone = pct >= 100 ? "is-error" : pct >= 80 ? "is-warn" : "";
+  const span = quota.window === "weekly" ? "week" : quota.window === "daily" ? "day" : null;
+  const reset = (ms: number) =>
+    new Date(ms).toLocaleString([], { weekday: ms - Date.now() > 20 * 3_600_000 ? "short" : undefined, hour: "2-digit", minute: "2-digit" });
+  const title = quotas
+    .map((q) => `${q.group}: ${Math.round(q.used * 100)}% of the ${q.window ? `${q.window} ` : ""}limit used${q.resets_at ? `, refills ${reset(q.resets_at)}` : ""}`)
+    .join("\n");
+  return (
+    <span className="limit-wrap">
+      <button type="button" className={`chip limit-chip is-gemini ${tone} ${open ? "open" : ""}`} title={`${title}\nClick for details`} onClick={() => setOpen(!open)}>
+        {span}
+        <span className="limit-meter">
+          <i style={{ width: `${pct}%` }} />
+        </span>
+        {pct >= 100 ? "limit reached" : `${pct}% used`}
+      </button>
+      {open && (
+        <>
+          <div className="menu-scrim" onClick={() => setOpen(false)} />
+          <div className="usage-pop">
+            <UsageCard report={geminiReport(quotas)} />
+          </div>
+        </>
+      )}
+    </span>
   );
 }
 

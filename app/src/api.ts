@@ -74,6 +74,30 @@ export interface GeminiStatus {
   /** the Google account it is signed in with */
   account: string | null;
   models: GeminiModel[];
+  /** how much of the plan is used, from Antigravity's `/usage` (while signed in) */
+  usage: GeminiUsage | null;
+}
+
+export interface GeminiUsage {
+  quotas: GeminiQuota[];
+  /** unix ms when it was read */
+  at: number;
+}
+
+/** one of the plan's limits; models in a group share it */
+export interface GeminiQuota {
+  /** "Gemini Models", "Claude and GPT models" */
+  group: string;
+  /** "Gemini Flash, Gemini Pro" */
+  models: string | null;
+  /** "Weekly Limit Remaining" */
+  name: string;
+  /** "weekly", "daily", … */
+  window: string | null;
+  /** 0..1 */
+  used: number;
+  /** unix ms when it refills */
+  resets_at: number | null;
 }
 
 /** the agent a session uses */
@@ -157,6 +181,8 @@ export interface Usage {
   session: number;
   /** current week (all models), 0..1 */
   week: number | null;
+  /** the whole `/usage` report, as Claude Code wrote it */
+  report: string;
   /** unix ms when it was read */
   at: number;
 }
@@ -271,6 +297,8 @@ export const api = {
   /** downloads the newer build, swaps the exe and restarts — only on the user's click */
   updateInstall: () => invoke<void>("update_install"),
   agentStatus: () => invoke<AgentStatus>("agent_status"),
+  /** reads the plan usage again (it arrives with agent-status / gemini) */
+  agentRefreshUsage: (provider: Provider) => invoke<void>("agent_refresh_usage", { provider }),
   /** new session in `path` (with `provider`, else the default agent); returns its id */
   agentOpen: (path: string, provider: Provider | null = null) => invoke<number>("agent_open", { path, provider }),
   /** switches an idle session to the other agent (new conversation) */
