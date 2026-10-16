@@ -49,9 +49,29 @@ pub struct Segment {
 
 pub fn load_model(path: &std::path::Path, cfg: &Config) -> Result<WhisperContext, String> {
     let mut params = whisper_rs::WhisperContextParameters::default();
-    params.use_gpu(cfg.use_gpu);
+    let mut use_gpu = cfg.use_gpu;
+    if use_gpu && !cfg.integrated_gpu && first_gpu_type() == Some(DEV_TYPE_IGPU) {
+        paths::log("only an integrated GPU found: transcribing on the CPU (\"integrated_gpu\": true in config.json to use it)");
+        use_gpu = false;
+    }
+    params.use_gpu(use_gpu);
     WhisperContext::new_with_params(path, params)
         .map_err(|e| format!("Failed to load model: {e:?}"))
+}
+
+/// ggml device types (ggml-backend.h: CPU, GPU, IGPU, ACCEL).
+const DEV_TYPE_GPU: u32 = 1;
+const DEV_TYPE_IGPU: u32 = 2;
+
+/// Type of the device whisper.cpp would pick with `use_gpu` (the first GPU or
+/// integrated GPU, i.e. `gpu_device` 0), or None when there is none.
+fn first_gpu_type() -> Option<u32> {
+    // SAFETY: plain queries of ggml's device registry (compiled-in backends).
+    unsafe {
+        (0..whisper_rs_sys::ggml_backend_dev_count())
+            .map(|i| whisper_rs_sys::ggml_backend_dev_type(whisper_rs_sys::ggml_backend_dev_get(i)))
+            .find(|&t| t == DEV_TYPE_GPU || t == DEV_TYPE_IGPU)
+    }
 }
 
 /// Transcribes 1 s of silence once so the first real utterance is not slow
@@ -209,6 +229,12 @@ pub fn transcribe(
     params.set_suppress_blank(true);
     params.set_suppress_nst(true);
     params.set_temperature(0.0);
+    if !paths::GPU_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+        // On the CPU the encoder dominates and always covers a full 30 s window;
+        // fit it to the utterance (50 frames per second, plus slack) instead.
+        let frames = input.len() * 50 / RATE + 64;
+        params.set_audio_ctx(frames.clamp(384, 1500) as i32);
+    }
     if let Some(p) = prompt {
         params.set_initial_prompt(p.trim());
     }

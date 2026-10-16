@@ -24,6 +24,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasapi = "0.25.0"
 whisper-rs = { version = "0.16.0", features = ["vulkan", "log_backend"] }
+# device queries (integrated vs dedicated GPU); same version whisper-rs uses
+whisper-rs-sys = "0.15.0"
 sysinfo = "0.39.6"
 chrono = "0.4.45"
 dirs = "7.0.0"

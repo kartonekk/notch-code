@@ -145,7 +145,7 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
     })?;
 
     update_status(app, |s| {
-        s.message = "Loading model onto the GPU…".into();
+        s.message = "Loading model…".into();
         s.progress = None;
     });
     let ctx = transcriber::load_model(&path, &cfg)?;

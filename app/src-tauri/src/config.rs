@@ -14,6 +14,9 @@ pub struct Config {
     pub model: String,
     /// Use the GPU (Vulkan) when available.
     pub use_gpu: bool,
+    /// Also use an integrated GPU (e.g. Radeon 840M). Off = machines with only
+    /// an integrated GPU transcribe on the CPU, which keeps up better there.
+    pub integrated_gpu: bool,
     /// CPU threads for whisper.cpp.
     pub threads: i32,
     /// Show live (not yet final) text while someone is still speaking.
@@ -41,6 +44,7 @@ impl Default for Config {
             language: "pl,en".into(),
             model: "ggml-large-v3-turbo-q5_0.bin".into(),
             use_gpu: true,
+            integrated_gpu: false,
             threads: std::thread::available_parallelism()
                 .map(|n| (n.get() as i32 / 2).clamp(2, 8))
                 .unwrap_or(4),

@@ -2346,6 +2346,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "wasapi",
  "whisper-rs",
+ "whisper-rs-sys",
  "windows",
  "windows-sys 0.61.2",
 ]
