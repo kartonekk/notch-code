@@ -3085,6 +3085,8 @@ button.limit-chip.is-gemini.open {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .settings .card {
   flex: none;
