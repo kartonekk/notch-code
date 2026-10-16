@@ -60,12 +60,12 @@ pub fn load_model(path: &std::path::Path, cfg: &Config) -> Result<WhisperContext
 }
 
 /// ggml device types (ggml-backend.h: CPU, GPU, IGPU, ACCEL).
-const DEV_TYPE_GPU: u32 = 1;
-const DEV_TYPE_IGPU: u32 = 2;
+const DEV_TYPE_GPU: whisper_rs_sys::ggml_backend_dev_type = 1;
+const DEV_TYPE_IGPU: whisper_rs_sys::ggml_backend_dev_type = 2;
 
 /// Type of the device whisper.cpp would pick with `use_gpu` (the first GPU or
 /// integrated GPU, i.e. `gpu_device` 0), or None when there is none.
-fn first_gpu_type() -> Option<u32> {
+fn first_gpu_type() -> Option<whisper_rs_sys::ggml_backend_dev_type> {
     // SAFETY: plain queries of ggml's device registry (compiled-in backends).
     unsafe {
         (0..whisper_rs_sys::ggml_backend_dev_count())
