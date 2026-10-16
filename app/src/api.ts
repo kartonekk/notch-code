@@ -124,6 +124,10 @@ export interface Media {
 
 export interface Settings {
   autostart: boolean;
+  /** transcription runs on the graphics card (else the CPU) */
+  gpu: boolean;
+  /** there is a graphics card the transcription can use */
+  gpu_available: boolean;
 }
 
 export interface UpdateStatus {
@@ -293,6 +297,8 @@ export const api = {
   mediaControl: (action: "toggle" | "next" | "prev") => invoke<void>("media_control", { action }),
   settingsGet: () => invoke<Settings>("settings_get"),
   setAutostart: (on: boolean) => invoke<void>("set_autostart", { on }),
+  /** saves the CPU / GPU choice and reloads the speech model on it */
+  setGpu: (on: boolean) => invoke<void>("set_gpu", { on }),
   updateStatus: () => invoke<UpdateStatus>("update_status"),
   /** downloads the newer build, swaps the exe and restarts — only on the user's click */
   updateInstall: () => invoke<void>("update_install"),

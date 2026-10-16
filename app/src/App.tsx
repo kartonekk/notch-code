@@ -526,7 +526,7 @@ export default function App() {
 
               <div className="view" key={String(view)}>
                 {view === "settings" ? (
-                  <Settings claude={claude} gemini={gemini} agents={agents} voice={voice} />
+                  <Settings claude={claude} gemini={gemini} agents={agents} voice={voice} status={status} />
                 ) : view === "transcribe" ? (
                   <section className={`card wash glow-${recording ? (paused ? "paused" : "rec") : phase === "error" ? "error" : "idle"}`}>
                     <TranscribeTab t={rec} status={status} />

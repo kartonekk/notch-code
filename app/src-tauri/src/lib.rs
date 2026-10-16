@@ -252,7 +252,7 @@ async fn start_recording(app: AppHandle, pid: u32, include_mic: bool) -> Result<
         level: level.clone(),
         ids: ids.clone(),
         started,
-        partials: cfg.live_preview,
+        partials: cfg.live_preview && transcriber::fast_backend(),
         dictation: false,
     };
     let fail = |e: String, stop: &AtomicBool| {
@@ -414,11 +414,46 @@ struct AutostartItem(CheckMenuItem<tauri::Wry>);
 #[derive(Serialize)]
 struct Settings {
     autostart: bool,
+    /// transcription runs on the graphics card (the next time the model loads)
+    gpu: bool,
+    /// there is a graphics card whisper.cpp can use
+    gpu_available: bool,
 }
 
 #[tauri::command]
 fn settings_get(app: AppHandle) -> Settings {
-    Settings { autostart: app.state::<AppState>().config.lock().unwrap().autostart }
+    let cfg = app.state::<AppState>().config.lock().unwrap().clone();
+    let (gpu_available, integrated) = transcriber::gpu_kind();
+    Settings {
+        autostart: cfg.autostart,
+        gpu: gpu_available && cfg.use_gpu && (cfg.integrated_gpu || !integrated),
+        gpu_available,
+    }
+}
+
+/// Settings' CPU / GPU switch: saves the choice and reloads the model on it.
+#[tauri::command]
+fn set_gpu(app: AppHandle, on: bool) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if state.session.lock().unwrap().is_some() {
+        return Err("Finish the recording first".into());
+    }
+    if state.setup_running.load(Ordering::SeqCst) {
+        return Err("The speech model is still loading".into());
+    }
+    let mut cfg = Config::load();
+    cfg.use_gpu = on;
+    if on {
+        cfg.integrated_gpu = true;
+    }
+    cfg.save();
+    *state.config.lock().unwrap() = cfg;
+    *state.model.lock().unwrap() = None;
+    paths::GPU_ACTIVE.store(false, Ordering::Relaxed);
+    *paths::GPU_NAME.lock().unwrap() = None;
+    update_status(&app, |s| s.backend = None);
+    start_setup(app.clone());
+    Ok(())
 }
 
 #[tauri::command]
@@ -546,6 +581,7 @@ pub fn run() {
             media::media_control,
             settings_get,
             set_autostart,
+            set_gpu,
             claude::claude_install,
             update::update_status,
             update::update_check,

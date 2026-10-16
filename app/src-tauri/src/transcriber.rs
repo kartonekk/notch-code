@@ -74,6 +74,18 @@ fn first_gpu_type() -> Option<whisper_rs_sys::ggml_backend_dev_type> {
     }
 }
 
+/// Whether this machine has a GPU whisper.cpp can use, and whether it is an integrated one.
+pub fn gpu_kind() -> (bool, bool) {
+    let t = first_gpu_type();
+    (t.is_some(), t == Some(DEV_TYPE_IGPU))
+}
+
+/// Running on a dedicated GPU. Anything else (CPU, integrated GPU) needs
+/// seconds per utterance, so live previews would only queue up ahead of the final text.
+pub fn fast_backend() -> bool {
+    paths::GPU_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) && first_gpu_type() == Some(DEV_TYPE_GPU)
+}
+
 /// Transcribes 1 s of silence once so the first real utterance is not slow
 /// (GPU pipelines/shaders are compiled lazily).
 pub fn warm_up(ctx: &WhisperContext, cfg: &Config) -> Result<Duration, String> {
@@ -229,8 +241,8 @@ pub fn transcribe(
     params.set_suppress_blank(true);
     params.set_suppress_nst(true);
     params.set_temperature(0.0);
-    if !paths::GPU_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
-        // On the CPU the encoder dominates and always covers a full 30 s window;
+    if !fast_backend() {
+        // On the CPU / an integrated GPU the encoder dominates and always covers a full 30 s window;
         // fit it to the utterance (50 frames per second, plus slack) instead.
         let frames = input.len() * 50 / RATE + 64;
         params.set_audio_ctx(frames.clamp(384, 1500) as i32);

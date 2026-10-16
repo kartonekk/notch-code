@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ClaudeAuthState, ClaudeStatus, GeminiStatus, on, Provider, PROVIDER_NAME, Settings as SettingsData } from "./api";
+import { api, AppStatus, ClaudeAuthState, ClaudeStatus, GeminiStatus, on, Provider, PROVIDER_NAME, Settings as SettingsData } from "./api";
 import type { Agents } from "./CodeTab";
 import { MASCOTS, MascotPicker, useMascot } from "./Mascot";
 import type { Voice } from "./Voice";
@@ -22,10 +22,12 @@ export function useGemini() {
  * Settings, built to be checked at a glance and changed in one click:
  *   accounts   Claude and Gemini side by side: signed in or not, one button for
  *              the next step, and which one new sessions use
- *   general    start with Windows, voice prompts, the mascot (or none)
+ *   general    start with Windows, voice prompts, transcription on CPU or GPU, the mascot (or none)
  */
-export function Settings({ claude, gemini, agents, voice }: { claude: ClaudeStatus | null; gemini: GeminiStatus | null; agents: Agents; voice: Voice }) {
+export function Settings({ claude, gemini, agents, voice, status }: { claude: ClaudeStatus | null; gemini: GeminiStatus | null; agents: Agents; voice: Voice; status: AppStatus | null }) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [gpuError, setGpuError] = useState<string | null>(null);
+  const engine = status?.backend ? `Running on ${status.backend}` : status?.phase === "error" ? status.message : "Loading the speech model…";
   const [mascot, setMascot] = useMascot();
   const skin = MASCOTS.find((m) => m.id === mascot);
   useEffect(() => {
@@ -94,6 +96,20 @@ export function Settings({ claude, gemini, agents, voice }: { claude: ClaudeStat
           sub="Say “Claude, …” to send a message; off keeps the microphone closed"
           on={voice.wake}
           onChange={(on) => voice.setWake(on)}
+        />
+        <Toggle
+          label="Transcribe on the graphics card"
+          sub={gpuError ?? (settings && !settings.gpu_available ? `No usable graphics card · ${engine}` : `Off uses the CPU · ${engine}`)}
+          on={settings?.gpu ?? false}
+          disabled={!settings || !settings.gpu_available || !status?.backend}
+          onChange={(on) => {
+            setGpuError(null);
+            setSettings((s) => (s ? { ...s, gpu: on } : s));
+            api.setGpu(on).catch((e) => {
+              setSettings((s) => (s ? { ...s, gpu: !on } : s));
+              setGpuError(String(e));
+            });
+          }}
         />
         <div className="setting-row mascot-row">
           <span className="setting-text">
