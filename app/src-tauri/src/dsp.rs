@@ -13,28 +13,32 @@ pub struct Downsampler {
     phase: usize,
 }
 
+/// `n`-tap Blackman windowed sinc low-pass, cutoff `fc` as a fraction of the sample rate.
+fn lowpass(n: usize, fc: f32) -> Vec<f32> {
+    let m = (n - 1) as f32;
+    let mut taps: Vec<f32> = (0..n)
+        .map(|i| {
+            let x = i as f32 - m / 2.0;
+            let sinc = if x == 0.0 {
+                2.0 * fc
+            } else {
+                (2.0 * std::f32::consts::PI * fc * x).sin() / (std::f32::consts::PI * x)
+            };
+            let w = 0.42 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / m).cos()
+                + 0.08 * (4.0 * std::f32::consts::PI * i as f32 / m).cos();
+            sinc * w
+        })
+        .collect();
+    let sum: f32 = taps.iter().sum();
+    taps.iter_mut().for_each(|t| *t /= sum);
+    taps
+}
+
 impl Downsampler {
     pub fn new() -> Self {
         // 63-tap Blackman windowed sinc, cutoff 7.2 kHz @ 48 kHz
         let n = 63;
-        let fc = 7_200.0 / 48_000.0;
-        let m = (n - 1) as f32;
-        let mut taps: Vec<f32> = (0..n)
-            .map(|i| {
-                let x = i as f32 - m / 2.0;
-                let sinc = if x == 0.0 {
-                    2.0 * fc
-                } else {
-                    (2.0 * std::f32::consts::PI * fc * x).sin() / (std::f32::consts::PI * x)
-                };
-                let w = 0.42 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / m).cos()
-                    + 0.08 * (4.0 * std::f32::consts::PI * i as f32 / m).cos();
-                sinc * w
-            })
-            .collect();
-        let sum: f32 = taps.iter().sum();
-        taps.iter_mut().for_each(|t| *t /= sum);
-        Self { hist: vec![0.0; n], taps, phase: 0 }
+        Self { hist: vec![0.0; n], taps: lowpass(n, 7_200.0 / 48_000.0), phase: 0 }
     }
 
     /// `interleaved` is stereo f32 at 48 kHz. Output is appended to `out`.
@@ -51,6 +55,42 @@ impl Downsampler {
                 out.push(y);
             }
         }
+    }
+}
+
+/// Mono f32 at any sample rate -> 16 kHz (recorded files): low-pass below
+/// 8 kHz when downsampling, then linear interpolation.
+pub struct Resampler {
+    taps: Vec<f32>,
+    /// input not consumed yet; output n reads `buf[pos..pos + taps.len() + 1]`
+    buf: Vec<f32>,
+    pos: f64,
+    step: f64,
+}
+
+impl Resampler {
+    pub fn new(rate: u32) -> Self {
+        let taps = if rate as usize > RATE { lowpass(63, 7_200.0 / rate as f32) } else { vec![1.0] };
+        Self { buf: vec![0.0; taps.len() - 1], taps, pos: 0.0, step: rate as f64 / RATE as f64 }
+    }
+
+    pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        self.buf.extend_from_slice(input);
+        let n = self.taps.len();
+        let filtered = |at: usize| -> f32 { self.buf[at..at + n].iter().zip(&self.taps).map(|(a, b)| a * b).sum() };
+        loop {
+            let i = self.pos as usize;
+            if i + n + 1 > self.buf.len() {
+                break;
+            }
+            let frac = (self.pos - i as f64) as f32;
+            let (a, b) = (filtered(i), filtered(i + 1));
+            out.push(a + (b - a) * frac);
+            self.pos += self.step;
+        }
+        let used = (self.pos as usize).min(self.buf.len());
+        self.buf.drain(..used);
+        self.pos -= used as f64;
     }
 }
 

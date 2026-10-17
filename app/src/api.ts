@@ -351,7 +351,39 @@ export const api = {
   voiceSetWake: (on: boolean) => invoke<void>("voice_set_wake", { on }),
   /** take the next thing said as a prompt; again to cancel */
   voiceTalk: () => invoke<void>("voice_talk"),
+  recordingsStatus: () => invoke<RecordingsStatus>("recordings_status"),
+  /** queues audio files to transcribe (rejects files it can't read, queuing none) */
+  recordingsAdd: (paths: string[]) => invoke<void>("recordings_add", { paths }),
+  /** the file dialog, then the same as `recordingsAdd` */
+  recordingsPick: () => invoke<void>("recordings_pick"),
+  /** stops the one being transcribed (keeps what's written), or takes another off the list */
+  recordingsRemove: (id: number) => invoke<void>("recordings_remove", { id }),
+  /** takes the finished ones off the list */
+  recordingsClear: () => invoke<void>("recordings_clear"),
+  recordingsOpen: (id: number) => invoke<void>("recordings_open", { id }),
 };
+
+/** Recorded files dropped on the island or picked, transcribed one at a time. */
+export interface RecordingItem {
+  id: number;
+  name: string;
+  path: string;
+  state: "waiting" | "working" | "done" | "failed" | "cancelled";
+  /** 0..1 while working; null when the length is unknown */
+  progress: number | null;
+  duration_ms: number | null;
+  transcript: string | null;
+  error: string | null;
+}
+
+export interface RecordingsStatus {
+  items: RecordingItem[];
+  /** why the queue isn't moving */
+  note: string | null;
+}
+
+/** what the backend can decode (recordings.rs AUDIO_EXTS) */
+export const isAudioPath = (p: string) => /\.(mp3|m4a|mp4|aac|wav|flac|ogg|oga|mkv)$/i.test(p);
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
   return listen<T>(event, (e) => cb(e.payload));

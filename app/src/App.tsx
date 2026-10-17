@@ -10,6 +10,7 @@ import { geminiReport, UsageCard } from "./Usage";
 import { useVoice, voiceLine } from "./Voice";
 import { PILL_STEP, PILL_WIDTH, ReviewPills, useReview } from "./Review";
 import { SPEAKER_LABEL, TranscribeTab, useTranscription } from "./TranscribeTab";
+import { DropOverlay, recordingsHeight, useRecordings } from "./Recordings";
 import {
   AgentTag,
   AlertIcon,
@@ -90,6 +91,8 @@ export default function App() {
   const media = useMedia();
   const [mascot] = useMascot();
   const rec = useTranscription(status, expanded && view === "transcribe");
+  // audio dropped on any tab is transcribed; show where it went
+  const recordings = useRecordings(() => setView("transcribe"));
   const { recording, paused, phase } = rec;
   const sessions = agents.sessions;
   const working = agents.running.length > 0;
@@ -225,7 +228,7 @@ export default function App() {
       ? recording
         ? 420
         : phase === "ready"
-          ? Math.min(400, 170 + Math.max(1, rec.sources.length) * 46)
+          ? Math.min(EXPANDED_MAX_H - 20, Math.min(400, 170 + Math.max(1, rec.sources.length) * 46) + recordingsHeight(recordings))
           : 230
       : view === "settings"
         ? SETTINGS_H
@@ -525,11 +528,12 @@ export default function App() {
               )}
 
               <div className="view" key={String(view)}>
+                <DropOverlay r={recordings} />
                 {view === "settings" ? (
                   <Settings claude={claude} gemini={gemini} agents={agents} voice={voice} status={status} />
                 ) : view === "transcribe" ? (
                   <section className={`card wash glow-${recording ? (paused ? "paused" : "rec") : phase === "error" ? "error" : "idle"}`}>
-                    <TranscribeTab t={rec} status={status} />
+                    <TranscribeTab t={rec} status={status} r={recordings} />
                   </section>
                 ) : current ? (
                   <section className={`card wash glow-${sessionGlow(current)}`} style={{ "--h": hue(current.project) } as CSSProperties}>

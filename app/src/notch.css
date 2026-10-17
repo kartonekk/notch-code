@@ -2665,6 +2665,155 @@ button.limit-chip.is-gemini.open {
 .picker-foot .btn.lg {
   margin-left: auto;
 }
+
+/* ---- recorded files (Recordings.tsx): queue + drop target under the apps */
+.recordings {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rec-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 148px;
+  overflow-y: auto;
+}
+.rec-file {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  overflow: hidden;
+}
+.rec-file-icon {
+  flex: none;
+  width: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--dim-2);
+}
+.rec-file.is-working .rec-file-icon {
+  color: var(--cyan);
+}
+.rec-file.is-done .rec-file-icon {
+  color: var(--green);
+}
+.rec-file-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rec-file-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rec-file-line {
+  font-size: 11px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rec-file-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.rec-file-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--indigo), var(--cyan));
+  transition: width 400ms linear;
+}
+.rec-file-fill.is-unknown {
+  width: 30%;
+  animation: rec-sweep 1.4s ease-in-out infinite;
+}
+@keyframes rec-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.rec-clear {
+  align-self: flex-end;
+  font-size: 11px;
+  color: var(--dim-2);
+  padding: 0 4px;
+}
+.rec-clear:hover {
+  color: var(--ink);
+}
+.drop-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  color: var(--dim);
+  text-align: left;
+  transition:
+    background 150ms,
+    border-color 150ms,
+    color 150ms;
+}
+.drop-zone:hover,
+.drop-zone.is-over {
+  background: rgba(34, 211, 238, 0.06);
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.drop-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.drop-text b {
+  color: var(--ink-2);
+}
+.drop-text .muted {
+  font-size: 11px;
+}
+.rec-note {
+  margin: 2px 0 0;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 16px;
+  border: 1.5px dashed var(--cyan);
+  background: rgba(14, 15, 17, 0.88);
+  color: var(--cyan);
+  pointer-events: none;
+}
+.drop-overlay svg {
+  width: 26px;
+  height: 26px;
+}
+.drop-overlay b {
+  color: var(--ink);
+  font-size: 15px;
+}
 .toggle {
   display: flex;
   align-items: center;

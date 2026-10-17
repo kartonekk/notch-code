@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, AppStatus, AudioSource, Levels, on, Segment } from "./api";
+import { type Recordings, RecordingsPanel } from "./Recordings";
 import { CheckIcon, FolderIcon, formatDuration, IconButton, Meter, Orb, PauseIcon, PlayIcon, store } from "./ui";
 
 export const SPEAKER_LABEL = { me: "Me", others: "Others" } as const;
@@ -132,7 +133,7 @@ export type Transcription = ReturnType<typeof useTranscription>;
 /** keys typed into a text field are not shortcuts */
 const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 
-export function TranscribeTab({ t, status }: { t: Transcription; status: AppStatus | null }) {
+export function TranscribeTab({ t, status, r }: { t: Transcription; status: AppStatus | null; r: Recordings }) {
   if (t.phase === "preparing") return <Preparing status={status} />;
   if (t.phase === "error") {
     return (
@@ -146,14 +147,14 @@ export function TranscribeTab({ t, status }: { t: Transcription; status: AppStat
       </div>
     );
   }
-  return t.recording ? <Live t={t} status={status} /> : <Picker t={t} status={status} />;
+  return t.recording ? <Live t={t} status={status} r={r} /> : <Picker t={t} status={status} r={r} />;
 }
 
 /**
  * Before recording: the apps playing audio right now (the meeting app is picked
  * already), the microphone switch, and one big Start. Enter starts too.
  */
-function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
+function Picker({ t, status, r }: { t: Transcription; status: AppStatus | null; r: Recordings }) {
   const selected = t.sources.find((s) => s.pid === t.selectedPid) ?? null;
   const start = useRef(t.start);
   start.current = t.start;
@@ -206,6 +207,7 @@ function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
           </button>
         ))}
       </div>
+      <RecordingsPanel r={r} />
       <div className="picker-foot">
         <label className="toggle" title="Your own voice, labelled “Me” in the transcript">
           <input type="checkbox" checked={t.includeMic} onChange={(e) => t.setIncludeMic(e.target.checked)} />
@@ -228,7 +230,7 @@ function Picker({ t, status }: { t: Transcription; status: AppStatus | null }) {
  * things you do (look at the file, pause, end) on top; the transcript below.
  * Space pauses or resumes.
  */
-function Live({ t, status }: { t: Transcription; status: AppStatus | null }) {
+function Live({ t, status, r }: { t: Transcription; status: AppStatus | null; r: Recordings }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [scrolledUp, setScrolledUp] = useState(false);
@@ -344,6 +346,11 @@ function Live({ t, status }: { t: Transcription; status: AppStatus | null }) {
         >
           ↓ Latest
         </button>
+      )}
+      {r.busy && (
+        <p className="muted small rec-note">
+          {r.items.filter((i) => i.state === "waiting" || i.state === "working").length} recording(s) will be transcribed when this meeting ends
+        </p>
       )}
       {t.error && <p className="error-text">{t.error}</p>}
     </div>

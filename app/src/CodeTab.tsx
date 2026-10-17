@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AgentEvent, AgentMode, AgentStatus, api, Denied, GeminiModel, GeminiStatus, GeminiUsage, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon, Usage } from "./api";
+import { AgentEvent, AgentMode, AgentStatus, api, Denied, GeminiModel, GeminiStatus, GeminiUsage, isAudioPath, Limit, on, Provider, PROVIDER_NAME, SessionStatus, SlashCommand, StepIcon, Usage } from "./api";
 import { Markdown } from "./Markdown";
 import { geminiReport, parseGeminiUsage, parseUsageReport, UsageCard } from "./Usage";
 import { MicButton, Voice, VoiceStrip } from "./Voice";
@@ -758,12 +758,14 @@ export function CodeTab({
   useEffect(() => {
     const sub = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload;
-      if (p.type === "enter" || p.type === "over") setDropping(true);
+      // recordings go to the Transcribe tab (Recordings.tsx), not to Claude
+      if (p.type === "enter") setDropping(!p.paths.some(isAudioPath));
       else if (p.type === "leave") setDropping(false);
       else if (p.type === "drop") {
         setDropping(false);
         setImageError(null);
-        addPathsRef.current(p.paths);
+        const rest = p.paths.filter((path) => !isAudioPath(path));
+        if (rest.length) addPathsRef.current(rest);
       }
     });
     return () => {

@@ -9,6 +9,7 @@ mod gemini;
 mod hover;
 mod media;
 mod paths;
+mod recordings;
 mod review;
 mod setup;
 mod terminal;
@@ -554,6 +555,7 @@ pub fn run() {
         .manage(agent::Agent::default())
         .manage(review::Review::default())
         .manage(voice::Voice::default())
+        .manage(recordings::Recordings::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             retry_setup,
@@ -613,6 +615,12 @@ pub fn run() {
             voice::voice_status,
             voice::voice_set_wake,
             voice::voice_talk,
+            recordings::recordings_status,
+            recordings::recordings_add,
+            recordings::recordings_pick,
+            recordings::recordings_remove,
+            recordings::recordings_clear,
+            recordings::recordings_open,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").expect("main window");

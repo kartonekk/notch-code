@@ -46,6 +46,27 @@ impl TranscriptFile {
         Ok(Self { path, started, out: Some(out) })
     }
 
+    /// Transcript of a recorded file: "<date> <title>.md" with the final
+    /// heading right away (live ones get it from `rename_to_subject`).
+    pub fn create_titled(title: &str, source: &str, started: DateTime<Local>) -> Result<Self, String> {
+        let dir = paths::transcripts_dir();
+        let name = safe_file_name(title);
+        let stem = format!("{} {}", started.format("%Y-%m-%d %H-%M"), if name.is_empty() { "Recording" } else { name.as_str() });
+        let mut path = dir.join(format!("{stem}.md"));
+        let mut n = 2;
+        while path.exists() {
+            path = dir.join(format!("{stem} ({n}).md"));
+            n += 1;
+        }
+        let file = File::create(&path).map_err(|e| format!("Cannot create transcript file: {e}"))?;
+        let mut out = BufWriter::new(file);
+        writeln!(out, "# {}\n", title.trim()).ok();
+        writeln!(out, "Source: {source}\n").ok();
+        writeln!(out, "Started: {}\n", started.format("%Y-%m-%d %H:%M")).ok();
+        out.flush().ok();
+        Ok(Self { path, started, out: Some(out) })
+    }
+
     fn write(&mut self, text: &str) {
         if let Some(out) = self.out.as_mut() {
             let _ = out.write_all(text.as_bytes());
