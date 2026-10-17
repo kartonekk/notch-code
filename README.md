@@ -71,6 +71,7 @@ Live meeting transcription (Webex, Teams, Zoom, browser…), fully local: nothin
 - **Audio from a single app**: WASAPI *process loopback* capture records only the selected program, not the whole system. Your microphone can be added too, labelled "Me".
 - **Local speech recognition**: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (`large-v3-turbo`, q5_0) on the GPU via Vulkan.
 - **Single exe**: the model (~550 MB) downloads on first launch, with progress shown in the island.
+- **Recordings too**: drop an audio file (MP3, M4A, WAV, FLAC, OGG) anywhere on the open island, or click **Transcribe a recording** in the Transcribe tab. Files wait in a queue and are transcribed one at a time, after any live meeting. A date at the start of the file name ("2026-10-17 10-15 Fizyka ćwiczenia") becomes the start time, the rest the title.
 - Transcripts are saved as Markdown in `Documents\Notch Code`.
 
 ## Download
